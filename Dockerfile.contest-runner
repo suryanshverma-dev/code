@@ -1,0 +1,36 @@
+# Multi-stage Dockerfile for secure code execution
+FROM ubuntu:22.04 as base
+
+# Install common dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN useradd -m -s /bin/bash runner
+
+# C++ Stage
+FROM base as cpp-runner
+RUN apt-get update && apt-get install -y \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+USER runner
+WORKDIR /tmp
+
+# Java Stage  
+FROM base as java-runner
+RUN apt-get update && apt-get install -y \
+    openjdk-17-jdk \
+    && rm -rf /var/lib/apt/lists/*
+USER runner
+WORKDIR /tmp
+
+# Python Stage
+FROM base as python-runner
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+USER runner
+WORKDIR /tmp
