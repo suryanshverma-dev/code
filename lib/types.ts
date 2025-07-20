@@ -8,17 +8,17 @@ export interface User {
 export interface MCQOption {
   id: string
   text: string
-  imageUrl?: string
   isCorrect: boolean
+  imageUrl?: string
 }
 
 export interface MCQProblem {
   id: string
   question: string
-  questionImage?: string
+  questionImageUrl?: string
   options: MCQOption[]
-  explanation?: string
-  subject?: string
+  explanation: string
+  subject: string
   difficulty: "easy" | "medium" | "hard"
   marks: number
   negativeMarks: number
@@ -31,9 +31,7 @@ export interface Contest {
   mcqProblems: MCQProblem[]
   duration: number // in minutes
   totalMarks: number
-  instructions?: string
-  startTime?: string
-  endTime?: string
+  instructions: string
   createdBy: string
   createdAt: string
   isActive: boolean
@@ -41,9 +39,8 @@ export interface Contest {
 
 export interface MCQSubmission {
   id: string
-  contestId: string
   userId: string
-  userName: string
+  contestId: string
   answers: Record<string, string> // questionId -> selectedOptionId
   score: number
   totalQuestions: number
@@ -54,25 +51,20 @@ export interface MCQSubmission {
   timeTaken: number // in seconds
 }
 
-export interface ContestResult {
-  submission: MCQSubmission
-  questionResults: Array<{
-    questionId: string
-    question: string
-    selectedOptionId?: string
-    correctOptionId: string
-    isCorrect: boolean
-    marks: number
-    explanation?: string
-  }>
-}
-
 export interface ExamSession {
   contestId: string
   userId: string
-  startTime: number
+  startTime: string
   answers: Record<string, string>
-  currentQuestion: number
-  timeRemaining: number
+  currentQuestionIndex: number
+  timeRemaining: number // in seconds
   isSubmitted: boolean
+}
+
+export interface UploadedImage {
+  data: string
+  name: string
+  type: string
+  size: number
+  uploadedAt: string
 }

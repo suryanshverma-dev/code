@@ -1,4 +1,4 @@
-import type { Contest } from "./types"
+import type { Contest, User, MCQSubmission, ExamSession } from "./types"
 
 // Storage keys
 const STORAGE_KEYS = {
@@ -167,21 +167,21 @@ const getDefaultContests = (): Contest[] => [
 ]
 
 // Utility functions
-const getFromStorage = <T>(key: string, defaultValue: T): T => {
+function getFromStorage<T>(key: string, defaultValue: T): T {
   if (typeof window === "undefined") return defaultValue
-  try {\
-    const item = localStorage.getItem(key)\
+  try {
+    const item = localStorage.getItem(key)
     return item ? JSON.parse(item) : defaultValue
   } catch (error) {
     console.error(`Error reading from localStorage key ${key}:`, error)
     return defaultValue
   }
 }
-\
-const setToStorage = <T>(key: string, value: T): void => {
+
+function setToStorage<T>(key: string, value: T): void {
   if (typeof window === "undefined") return
-  try {\
-    localStorage.setItem(key, JSON.stringify(value))\
+  try {
+    localStorage.setItem(key, JSON.stringify(value))
   } catch (error) {
     console.error(`Error writing to localStorage key ${key}:`, error)
   }
@@ -189,7 +189,7 @@ const setToStorage = <T>(key: string, value: T): void => {
 
 // Initialize default data
 const initializeDefaultData = () => {
-  const contests = getFromStorage(STORAGE_KEYS.CONTESTS, [])\
+  const contests = getFromStorage(STORAGE_KEYS.CONTESTS, [])
   if (contests.length === 0) {
     setToStorage(STORAGE_KEYS.CONTESTS, getDefaultContests())
   }
@@ -202,24 +202,24 @@ export const storage = {
     initializeDefaultData()
   },
 
-  // Users\
+  // Users
   getUsers: (): User[] => getFromStorage(STORAGE_KEYS.USERS, []),
-  
+
   getUserById: (id: string): User | null => {
-    const users = storage.getUsers()\
+    const users = storage.getUsers()
     return users.find((user) => user.id === id) || null
   },
-  
+
   getUserByEmail: (email: string): User | null => {
-    const users = storage.getUsers()\
+    const users = storage.getUsers()
     return users.find((user) => user.email === email) || null
   },
-  
-  createUser: (userData: Omit<User, "id" | "createdAt">): User => {\
+
+  createUser: (userData: Omit<User, "id" | "createdAt">): User => {
     const users = storage.getUsers()
-    const newUser: User = {\
+    const newUser: User = {
       ...userData,
-      id: \`user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       createdAt: new Date().toISOString(),
     }
     users.push(newUser)
@@ -229,37 +229,37 @@ export const storage = {
 
   // Current user session
   getCurrentUser: (): User | null => getFromStorage(STORAGE_KEYS.CURRENT_USER, null),
-  
+
   setCurrentUser: (user: User | null): void => {
     setToStorage(STORAGE_KEYS.CURRENT_USER, user)
   },
 
   // Contests
   getContests: (): Contest[] => getFromStorage(STORAGE_KEYS.CONTESTS, []),
-  
+
   getContestById: (id: string): Contest | null => {
-    const contests = storage.getContests()\
+    const contests = storage.getContests()
     return contests.find((contest) => contest.id === id) || null
   },
-  
-  createContest: (contestData: Omit<Contest, "id" | "createdAt">): Contest => {\
-    const contests = storage.getContests()\
+
+  createContest: (contestData: Omit<Contest, "id" | "createdAt">): Contest => {
+    const contests = storage.getContests()
     const newContest: Contest = {
       ...contestData,
-      id: \`contest_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: `contest_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       createdAt: new Date().toISOString(),
     }
     contests.push(newContest)
     setToStorage(STORAGE_KEYS.CONTESTS, contests)
     return newContest
   },
-  
+
   updateContest: (id: string, updates: Partial<Contest>): Contest | null => {
-    const contests = storage.getContests()\
+    const contests = storage.getContests()
     const index = contests.findIndex((contest) => contest.id === id)
     if (index !== -1) {
       contests[index] = { ...contests[index], ...updates }
-      setToStorage(STORAGE_KEYS.CONTESTS, contests)\
+      setToStorage(STORAGE_KEYS.CONTESTS, contests)
       return contests[index]
     }
     return null
@@ -267,32 +267,32 @@ export const storage = {
 
   // Submissions
   getSubmissions: (): MCQSubmission[] => getFromStorage(STORAGE_KEYS.SUBMISSIONS, []),
-  
+
   getSubmissionById: (id: string): MCQSubmission | null => {
-    const submissions = storage.getSubmissions()\
+    const submissions = storage.getSubmissions()
     return submissions.find((sub) => sub.id === id) || null
   },
-  
+
   getSubmissionsByUserId: (userId: string): MCQSubmission[] => {
-    const submissions = storage.getSubmissions()\
+    const submissions = storage.getSubmissions()
     return submissions.filter((sub) => sub.userId === userId)
   },
-  
+
   getSubmissionsByContestId: (contestId: string): MCQSubmission[] => {
-    const submissions = storage.getSubmissions()\
+    const submissions = storage.getSubmissions()
     return submissions.filter((sub) => sub.contestId === contestId)
   },
-  
+
   getUserSubmissionForContest: (userId: string, contestId: string): MCQSubmission | null => {
-    const submissions = storage.getSubmissions()\
+    const submissions = storage.getSubmissions()
     return submissions.find((sub) => sub.userId === userId && sub.contestId === contestId) || null
   },
-  
-  createSubmission: (submissionData: Omit<MCQSubmission, "id">): MCQSubmission => {\
-    const submissions = storage.getSubmissions()\
+
+  createSubmission: (submissionData: Omit<MCQSubmission, "id">): MCQSubmission => {
+    const submissions = storage.getSubmissions()
     const newSubmission: MCQSubmission = {
       ...submissionData,
-      id: \`submission_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: `submission_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
     }
     submissions.push(newSubmission)
     setToStorage(STORAGE_KEYS.SUBMISSIONS, submissions)
@@ -301,17 +301,17 @@ export const storage = {
 
   // Exam session management
   getExamSession: (contestId: string, userId: string): ExamSession | null => {
-    const key = \`${STORAGE_KEYS.EXAM_SESSION}_${contestId}_${userId}\`
+    const key = `${STORAGE_KEYS.EXAM_SESSION}_${contestId}_${userId}`
     return getFromStorage(key, null)
   },
-  
+
   setExamSession: (session: ExamSession): void => {
-    const key = \`${STORAGE_KEYS.EXAM_SESSION}_${session.contestId}_${session.userId}`
+    const key = `${STORAGE_KEYS.EXAM_SESSION}_${session.contestId}_${session.userId}`
     setToStorage(key, session)
   },
-  
+
   clearExamSession: (contestId: string, userId: string): void => {
-    const key = \`${STORAGE_KEYS.EXAM_SESSION}_${contestId}_${userId}\`
+    const key = `${STORAGE_KEYS.EXAM_SESSION}_${contestId}_${userId}`
     if (typeof window !== "undefined") {
       localStorage.removeItem(key)
     }
@@ -333,7 +333,7 @@ export const storage = {
           uploadedAt: new Date().toISOString(),
         }
         setToStorage(STORAGE_KEYS.UPLOADED_IMAGES, images)
-        resolve(`data:${file.type};base64,${result.split(',')[1]}`)
+        resolve(`data:${file.type};base64,${result.split(",")[1]}`)
       }
       reader.onerror = () => reject(new Error("Failed to read file"))
       reader.readAsDataURL(file)
@@ -348,10 +348,10 @@ export const storage = {
     let score = 0
     let correctAnswers = 0
     let wrongAnswers = 0
-    const totalQuestions = contest.mcqProblems.length
+    const totalQuestions = contest.mcqProblems?.length || 0
     const unattempted = totalQuestions - Object.keys(answers).length
 
-    contest.mcqProblems.forEach((problem) => {
+    contest.mcqProblems?.forEach((problem) => {
       const selectedOptionId = answers[problem.id]
       if (selectedOptionId) {
         const selectedOption = problem.options.find((opt) => opt.id === selectedOptionId)
