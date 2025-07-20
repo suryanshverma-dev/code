@@ -236,8 +236,8 @@ export function CodeEditor({ problem, index, onSubmit, submissions, disabled = f
             <Alert>
               <AlertTriangle className="h-4 w-4" />
               <AlertDescription>
-                <strong>Execution Environment:</strong> Your code runs in a secure Docker container with limited
-                resources (128MB memory, 10s timeout). Network access is disabled for security.
+                <strong>Execution Environment:</strong> Your code runs directly on the server with limited resources and
+                10-second timeout. Please ensure your solution is efficient.
               </AlertDescription>
             </Alert>
           </TabsContent>
