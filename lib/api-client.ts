@@ -1,115 +1,149 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "/api"
+import type { User, Contest, Submission, MCQProblem } from "./types"
 
 class ApiClient {
-  private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-    const url = `${API_BASE_URL}${endpoint}`
+  private baseUrl = "/api"
 
-    const config: RequestInit = {
-      headers: {
-        "Content-Type": "application/json",
-        ...options.headers,
-      },
-      ...options,
-    }
-
-    // Add auth token if available
-    if (typeof window !== "undefined") {
-      const token = localStorage.getItem("authToken")
-      if (token) {
-        config.headers = {
-          ...config.headers,
-          Authorization: `Bearer ${token}`,
-        }
-      }
-    }
-
-    const response = await fetch(url, config)
+  // Auth methods
+  async login(email: string, password: string): Promise<{ user: User; token: string }> {
+    const response = await fetch(`${this.baseUrl}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    })
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}))
-      throw new Error(errorData.error || `API Error: ${response.status} ${response.statusText}`)
+      const error = await response.json()
+      throw new Error(error.error || "Login failed")
     }
 
     return response.json()
   }
 
-  // Auth methods
-  async login(email: string, password: string) {
-    const response = await this.request<{ user: any; token: string }>("/auth/login", {
+  async signup(name: string, email: string, password: string): Promise<{ user: User; token: string }> {
+    const response = await fetch(`${this.baseUrl}/auth/signup`, {
       method: "POST",
-      body: JSON.stringify({ email, password }),
-    })
-
-    if (typeof window !== "undefined") {
-      localStorage.setItem("authToken", response.token)
-    }
-    return response
-  }
-
-  async signup(name: string, email: string, password: string) {
-    const response = await this.request<{ user: any; token: string }>("/auth/signup", {
-      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, email, password }),
     })
 
-    if (typeof window !== "undefined") {
-      localStorage.setItem("authToken", response.token)
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || "Signup failed")
     }
-    return response
-  }
 
-  async logout() {
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("authToken")
-    }
+    return response.json()
   }
 
   // Contest methods
-  async getContests() {
-    return this.request<any[]>("/contests")
+  async getContests(): Promise<Contest[]> {
+    const response = await fetch(`${this.baseUrl}/contests`)
+    if (!response.ok) throw new Error("Failed to fetch contests")
+    return response.json()
   }
 
-  async getContest(id: string) {
-    return this.request<any>(`/contests/${id}`)
+  async getContest(id: string): Promise<Contest> {
+    const response = await fetch(`${this.baseUrl}/contests/${id}`)
+    if (!response.ok) throw new Error("Failed to fetch contest")
+    return response.json()
   }
 
-  async createContest(contestData: any) {
-    return this.request<any>("/contests", {
+  async createContest(contestData: {
+    title: string
+    description: string
+    duration: number
+    mcqProblems: MCQProblem[]
+    instructions?: string[]
+    allowReview?: boolean
+    showResults?: boolean
+    passingMarks?: number
+  }): Promise<Contest> {
+    const token = localStorage.getItem("token")
+    const response = await fetch(`${this.baseUrl}/contests`, {
       method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
       body: JSON.stringify(contestData),
     })
+
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || "Failed to create contest")
+    }
+
+    return response.json()
   }
 
   // Submission methods
-  async saveSubmission(submission: any) {
-    return this.request<any>("/submissions", {
+  async saveSubmission(submissionData: {
+    contestId: string
+    answers: Record<string, number>
+    timeTaken: number
+  }): Promise<Submission> {
+    const token = localStorage.getItem("token")
+    const response = await fetch(`${this.baseUrl}/submissions`, {
       method: "POST",
-      body: JSON.stringify(submission),
-    })
-  }
-
-  async getSubmissions(userId: string) {
-    return this.request<any[]>(`/submissions/user/${userId}`)
-  }
-
-  // Code submission methods
-  async saveCodeSubmission(submissionData: any) {
-    return this.request<any>("/code-submissions", {
-      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
       body: JSON.stringify(submissionData),
     })
+
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || "Failed to save submission")
+    }
+
+    return response.json()
   }
 
-  async getCodeSubmissions(contestId: string, userId: string) {
-    return this.request<any[]>(`/code-submissions/${contestId}/${userId}`)
-  }
-
-  // Code execution
-  async executeCode(code: string, language: string, problem: any) {
-    return this.request<any>("/execute", {
-      method: "POST",
-      body: JSON.stringify({ code, language, problem }),
+  async getUserSubmissions(userId: string): Promise<Submission[]> {
+    const token = localStorage.getItem("token")
+    const response = await fetch(`${this.baseUrl}/submissions/user/${userId}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
     })
+
+    if (!response.ok) throw new Error("Failed to fetch user submissions")
+    return response.json()
+  }
+
+  async getContestSubmissions(contestId: string): Promise<Submission[]> {
+    const token = localStorage.getItem("token")
+    const response = await fetch(`${this.baseUrl}/submissions/contest/${contestId}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+
+    if (!response.ok) throw new Error("Failed to fetch contest submissions")
+    return response.json()
+  }
+
+  // Image upload method
+  async uploadImage(file: File): Promise<string> {
+    const formData = new FormData()
+    formData.append("image", file)
+
+    const token = localStorage.getItem("token")
+    const response = await fetch(`${this.baseUrl}/upload`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+    })
+
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || "Failed to upload image")
+    }
+
+    const result = await response.json()
+    return result.url
   }
 }
 

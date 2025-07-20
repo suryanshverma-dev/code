@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { getSubmissions } from "@/lib/server-storage"
+import { getUserSubmissions } from "@/lib/server-storage"
 import { authenticateToken } from "@/lib/auth-middleware"
 
 export async function GET(request: NextRequest, { params }: { params: { userId: string } }) {
@@ -9,10 +9,13 @@ export async function GET(request: NextRequest, { params }: { params: { userId: 
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const submissions = await getSubmissions()
-    const userSubmissions = submissions.filter((s) => s.userId === params.userId)
+    // Users can only access their own submissions
+    if (user.id !== params.userId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
 
-    return NextResponse.json(userSubmissions)
+    const submissions = await getUserSubmissions(params.userId)
+    return NextResponse.json(submissions)
   } catch (error) {
     console.error("Get user submissions error:", error)
     return NextResponse.json({ error: "Server error" }, { status: 500 })

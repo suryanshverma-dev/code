@@ -5,16 +5,16 @@ import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Calendar, Users, Trophy, Plus, Clock } from "lucide-react"
+import { Plus, Clock, BookOpen, Trophy, Calendar, User } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
 import type { Contest } from "@/lib/types"
 import { apiClient } from "@/lib/api-client"
 
 export default function HomePage() {
-  const { user, loading } = useAuth()
+  const { user, logout } = useAuth()
   const router = useRouter()
   const [contests, setContests] = useState<Contest[]>([])
-  const [loadingContests, setLoadingContests] = useState(true)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const fetchContests = async () => {
@@ -24,181 +24,163 @@ export default function HomePage() {
       } catch (error) {
         console.error("Failed to fetch contests:", error)
       } finally {
-        setLoadingContests(false)
+        setLoading(false)
       }
     }
 
     fetchContests()
   }, [])
 
+  if (!user) {
+    router.push("/login")
+    return null
+  }
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    })
+  }
+
   const getContestStatus = (contest: Contest) => {
     const now = new Date()
-    const startTime = contest.startTime ? new Date(contest.startTime) : null
-    const endTime = contest.endTime ? new Date(contest.endTime) : null
+    const startTime = contest.startTime ? new Date(contest.startTime) : new Date(contest.createdAt)
+    const endTime = contest.endTime
+      ? new Date(contest.endTime)
+      : new Date(startTime.getTime() + contest.duration * 60 * 1000)
 
-    if (endTime && now > endTime) {
-      return { status: "ended", color: "text-gray-500" }
+    if (now < startTime) {
+      return { status: "upcoming", color: "bg-blue-100 text-blue-800" }
+    } else if (now >= startTime && now <= endTime) {
+      return { status: "live", color: "bg-green-100 text-green-800" }
+    } else {
+      return { status: "ended", color: "bg-gray-100 text-gray-800" }
     }
-    if (startTime && now < startTime) {
-      return { status: "upcoming", color: "text-blue-600" }
-    }
-    return { status: "active", color: "text-green-600" }
-  }
-
-  const formatTimeRemaining = (endTime: string) => {
-    const now = new Date()
-    const end = new Date(endTime)
-    const diff = end.getTime() - now.getTime()
-
-    if (diff <= 0) return "Ended"
-
-    const hours = Math.floor(diff / (1000 * 60 * 60))
-    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
-
-    if (hours > 0) {
-      return `${hours}h ${minutes}m remaining`
-    }
-    return `${minutes}m remaining`
-  }
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading...</p>
-        </div>
-      </div>
-    )
-  }
-
-  if (!user) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-        <Card className="w-full max-w-md">
-          <CardHeader className="text-center">
-            <Trophy className="w-12 h-12 mx-auto text-indigo-600 mb-4" />
-            <CardTitle className="text-2xl">CodeContest Platform</CardTitle>
-            <CardDescription>Join coding contests and test your programming skills</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <Button onClick={() => router.push("/login")} className="w-full">
-              Login
-            </Button>
-            <Button onClick={() => router.push("/signup")} variant="outline" className="w-full">
-              Sign Up
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    )
   }
 
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center space-x-2">
-              <Trophy className="w-8 h-8 text-indigo-600" />
-              <h1 className="text-xl font-bold text-gray-900">CodeContest</h1>
+          <div className="flex items-center justify-between h-16">
+            <div className="flex items-center space-x-4">
+              <BookOpen className="w-8 h-8 text-indigo-600" />
+              <h1 className="text-xl font-bold text-gray-900">MCQ Contest Platform</h1>
             </div>
-            <nav className="flex items-center space-x-4">
-              <Button onClick={() => router.push("/create-contest")} className="flex items-center space-x-2">
-                <Plus className="w-4 h-4" />
-                <span>Create Contest</span>
-              </Button>
-              <Button onClick={() => router.push("/generate-mcqs")} variant="outline">
-                Generate MCQs
-              </Button>
-              <Button onClick={() => router.push("/profile")} variant="ghost">
+            <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-2">
+                <User className="w-4 h-4 text-gray-600" />
+                <span className="text-sm text-gray-700">{user.name}</span>
+              </div>
+              <Button variant="outline" onClick={() => router.push("/profile")}>
                 Profile
               </Button>
-            </nav>
+              <Button variant="ghost" onClick={logout}>
+                Logout
+              </Button>
+            </div>
           </div>
         </div>
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-8">
-          <h2 className="text-3xl font-bold text-gray-900 mb-2">Welcome back, {user.name}!</h2>
-          <p className="text-gray-600">Choose a contest to participate in or create your own</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900">Available Contests</h2>
+              <p className="text-gray-600 mt-1">Take MCQ-based examinations and tests</p>
+            </div>
+            <Button onClick={() => router.push("/create-contest")} className="flex items-center space-x-2">
+              <Plus className="w-4 h-4" />
+              <span>Create Contest</span>
+            </Button>
+          </div>
         </div>
 
-        {loadingContests ? (
-          <div className="text-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mx-auto mb-4"></div>
-            <p className="text-gray-600">Loading contests...</p>
+        {loading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {[...Array(6)].map((_, i) => (
+              <Card key={i} className="animate-pulse">
+                <CardHeader>
+                  <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+                  <div className="h-3 bg-gray-200 rounded w-1/2"></div>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    <div className="h-3 bg-gray-200 rounded"></div>
+                    <div className="h-3 bg-gray-200 rounded w-2/3"></div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
           </div>
         ) : contests.length === 0 ? (
-          <Card className="text-center py-12">
-            <CardContent>
-              <Trophy className="w-16 h-16 mx-auto text-gray-400 mb-4" />
-              <h3 className="text-xl font-semibold text-gray-900 mb-2">No contests available</h3>
-              <p className="text-gray-600 mb-6">Be the first to create a contest for the community</p>
-              <Button onClick={() => router.push("/create-contest")}>Create First Contest</Button>
-            </CardContent>
-          </Card>
+          <div className="text-center py-12">
+            <BookOpen className="w-16 h-16 mx-auto text-gray-300 mb-4" />
+            <h3 className="text-lg font-medium text-gray-900 mb-2">No contests available</h3>
+            <p className="text-gray-600 mb-6">Create your first MCQ contest to get started</p>
+            <Button onClick={() => router.push("/create-contest")}>
+              <Plus className="w-4 h-4 mr-2" />
+              Create Contest
+            </Button>
+          </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {contests.map((contest) => {
               const contestStatus = getContestStatus(contest)
               return (
-                <Card key={contest.id} className="hover:shadow-lg transition-shadow">
+                <Card key={contest.id} className="hover:shadow-lg transition-shadow cursor-pointer">
                   <CardHeader>
-                    <div className="flex justify-between items-start">
-                      <CardTitle className="text-lg">{contest.title}</CardTitle>
-                      <div className="flex flex-col items-end space-y-1">
-                        <Badge variant="secondary">
-                          {contest.codingProblems.length + contest.mcqProblems.length} problems
-                        </Badge>
-                        <Badge variant="outline" className={`text-xs ${contestStatus.color}`}>
-                          {contestStatus.status}
-                        </Badge>
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <CardTitle className="text-lg mb-2">{contest.title}</CardTitle>
+                        <CardDescription className="line-clamp-2">{contest.description}</CardDescription>
+                      </div>
+                      <Badge className={contestStatus.color}>{contestStatus.status}</Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div className="flex items-center space-x-2">
+                        <BookOpen className="w-4 h-4 text-gray-500" />
+                        <span>{contest.mcqProblems.length} Questions</span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <Clock className="w-4 h-4 text-gray-500" />
+                        <span>{contest.duration} min</span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <Trophy className="w-4 h-4 text-gray-500" />
+                        <span>{contest.totalMarks} Marks</span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <User className="w-4 h-4 text-gray-500" />
+                        <span>{contest.createdBy}</span>
                       </div>
                     </div>
-                    <CardDescription className="line-clamp-2">{contest.description}</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between text-sm text-gray-600">
-                        <div className="flex items-center space-x-1">
-                          <Calendar className="w-4 h-4" />
-                          <span>Created {new Date(contest.createdAt).toLocaleDateString()}</span>
-                        </div>
-                        <div className="flex items-center space-x-1">
-                          <Users className="w-4 h-4" />
-                          <span>By {contest.createdBy}</span>
-                        </div>
+
+                    {contest.startTime && (
+                      <div className="flex items-center space-x-2 text-sm text-gray-600">
+                        <Calendar className="w-4 h-4" />
+                        <span>Starts: {formatDate(contest.startTime)}</span>
                       </div>
+                    )}
 
-                      {contest.endTime && contestStatus.status === "active" && (
-                        <div className="flex items-center space-x-1 text-sm text-orange-600">
-                          <Clock className="w-4 h-4" />
-                          <span>{formatTimeRemaining(contest.endTime)}</span>
-                        </div>
-                      )}
-
-                      <div className="flex space-x-2 text-xs">
-                        {contest.codingProblems.length > 0 && (
-                          <Badge variant="outline">{contest.codingProblems.length} Coding</Badge>
-                        )}
-                        {contest.mcqProblems.length > 0 && (
-                          <Badge variant="outline">{contest.mcqProblems.length} MCQ</Badge>
-                        )}
-                        {contest.duration && <Badge variant="outline">{contest.duration}min</Badge>}
-                      </div>
-
+                    <div className="flex space-x-2">
                       <Button
                         onClick={() => router.push(`/contest/${contest.id}`)}
-                        className="w-full mt-4"
+                        className="flex-1"
                         disabled={contestStatus.status === "ended"}
                       >
-                        {contestStatus.status === "ended"
-                          ? "Contest Ended"
-                          : contestStatus.status === "upcoming"
-                            ? "View Contest"
-                            : "Participate"}
+                        {contestStatus.status === "upcoming"
+                          ? "View Details"
+                          : contestStatus.status === "live"
+                            ? "Take Exam"
+                            : "View Results"}
                       </Button>
                     </div>
                   </CardContent>

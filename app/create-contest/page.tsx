@@ -8,55 +8,37 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { ArrowLeft, Plus, Trash2, Code, HelpCircle, Clock } from "lucide-react"
+import { ArrowLeft, Plus, Trash2, Clock, HelpCircle, ImageIcon } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
-import type { CodingProblem, MCQProblem, TestCase } from "@/lib/types"
+import type { MCQProblem } from "@/lib/types"
 import { generateId } from "@/lib/utils"
 import { apiClient } from "@/lib/api-client"
+import Image from "next/image"
 
 export default function CreateContestPage() {
   const { user } = useAuth()
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
+  const [uploadingImage, setUploadingImage] = useState<string | null>(null)
 
   const [contestData, setContestData] = useState({
     title: "",
     description: "",
     duration: 120, // Default 2 hours
+    instructions: [""],
+    allowReview: true,
+    showResults: true,
+    passingMarks: 0,
   })
 
-  const [codingProblems, setCodingProblems] = useState<CodingProblem[]>([])
   const [mcqProblems, setMcqProblems] = useState<MCQProblem[]>([])
 
   if (!user) {
     router.push("/login")
     return null
-  }
-
-  const addCodingProblem = () => {
-    setCodingProblems([
-      ...codingProblems,
-      {
-        id: generateId(),
-        title: "",
-        description: "",
-        sampleInput: "",
-        sampleOutput: "",
-      },
-    ])
-  }
-
-  const updateCodingProblem = (index: number, field: keyof CodingProblem, value: string | TestCase[]) => {
-    const updated = [...codingProblems]
-    updated[index] = { ...updated[index], [field]: value }
-    setCodingProblems(updated)
-  }
-
-  const removeCodingProblem = (index: number) => {
-    setCodingProblems(codingProblems.filter((_, i) => i !== index))
   }
 
   const addMCQProblem = () => {
@@ -67,6 +49,9 @@ export default function CreateContestPage() {
         question: "",
         options: ["", "", "", ""],
         correctAnswer: 0,
+        marks: 1,
+        negativeMarks: 0,
+        difficulty: "medium",
       },
     ])
   }
@@ -87,39 +72,53 @@ export default function CreateContestPage() {
     setMcqProblems(mcqProblems.filter((_, i) => i !== index))
   }
 
-  const addTestCase = (problemIndex: number) => {
-    const updated = [...codingProblems]
-    if (!updated[problemIndex].testCases) {
-      updated[problemIndex].testCases = []
-    }
-    updated[problemIndex].testCases!.push({
-      input: "",
-      expectedOutput: "",
+  const addInstruction = () => {
+    setContestData({
+      ...contestData,
+      instructions: [...contestData.instructions, ""],
     })
-    setCodingProblems(updated)
   }
 
-  const updateTestCase = (
+  const updateInstruction = (index: number, value: string) => {
+    const updated = [...contestData.instructions]
+    updated[index] = value
+    setContestData({ ...contestData, instructions: updated })
+  }
+
+  const removeInstruction = (index: number) => {
+    setContestData({
+      ...contestData,
+      instructions: contestData.instructions.filter((_, i) => i !== index),
+    })
+  }
+
+  const handleImageUpload = async (
+    file: File,
     problemIndex: number,
-    testIndex: number,
-    field: "input" | "expectedOutput",
-    value: string,
+    type: "question" | "option",
+    optionIndex?: number,
   ) => {
-    const updated = [...codingProblems]
-    if (updated[problemIndex].testCases) {
-      updated[problemIndex].testCases[testIndex] = {
-        ...updated[problemIndex].testCases[testIndex],
-        [field]: value,
-      }
-      setCodingProblems(updated)
-    }
-  }
+    const uploadKey = `${problemIndex}-${type}-${optionIndex || 0}`
+    setUploadingImage(uploadKey)
 
-  const removeTestCase = (problemIndex: number, testIndex: number) => {
-    const updated = [...codingProblems]
-    if (updated[problemIndex].testCases) {
-      updated[problemIndex].testCases.splice(testIndex, 1)
-      setCodingProblems(updated)
+    try {
+      const imageUrl = await apiClient.uploadImage(file)
+
+      if (type === "question") {
+        updateMCQProblem(problemIndex, "questionImage", imageUrl)
+      } else if (type === "option" && optionIndex !== undefined) {
+        const updated = [...mcqProblems]
+        if (!updated[problemIndex].optionImages) {
+          updated[problemIndex].optionImages = []
+        }
+        updated[problemIndex].optionImages![optionIndex] = imageUrl
+        setMcqProblems(updated)
+      }
+    } catch (error) {
+      console.error("Image upload failed:", error)
+      setError("Failed to upload image: " + (error as Error).message)
+    } finally {
+      setUploadingImage(null)
     }
   }
 
@@ -132,17 +131,9 @@ export default function CreateContestPage() {
       return
     }
 
-    if (codingProblems.length === 0 && mcqProblems.length === 0) {
-      setError("At least one problem is required")
+    if (mcqProblems.length === 0) {
+      setError("At least one MCQ problem is required")
       return
-    }
-
-    // Validate coding problems
-    for (const problem of codingProblems) {
-      if (!problem.title.trim() || !problem.description.trim()) {
-        setError("All coding problems must have a title and description")
-        return
-      }
     }
 
     // Validate MCQ problems
@@ -155,6 +146,10 @@ export default function CreateContestPage() {
         setError("All MCQ options must be filled")
         return
       }
+      if (problem.marks <= 0) {
+        setError("All questions must have positive marks")
+        return
+      }
     }
 
     setLoading(true)
@@ -164,8 +159,11 @@ export default function CreateContestPage() {
         title: contestData.title,
         description: contestData.description,
         duration: contestData.duration,
-        codingProblems,
         mcqProblems,
+        instructions: contestData.instructions.filter((inst) => inst.trim()),
+        allowReview: contestData.allowReview,
+        showResults: contestData.showResults,
+        passingMarks: contestData.passingMarks,
       })
 
       router.push("/")
@@ -192,8 +190,8 @@ export default function CreateContestPage() {
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Card>
           <CardHeader>
-            <CardTitle className="text-2xl">Create New Contest</CardTitle>
-            <CardDescription>Design a coding contest with programming problems and MCQs</CardDescription>
+            <CardTitle className="text-2xl">Create New MCQ Contest</CardTitle>
+            <CardDescription>Design an MCQ-based examination with image support</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
@@ -203,6 +201,7 @@ export default function CreateContestPage() {
                 </Alert>
               )}
 
+              {/* Contest Basic Info */}
               <div className="space-y-4">
                 <div>
                   <Label htmlFor="title">Contest Title</Label>
@@ -210,7 +209,7 @@ export default function CreateContestPage() {
                     id="title"
                     value={contestData.title}
                     onChange={(e) => setContestData({ ...contestData, title: e.target.value })}
-                    placeholder="e.g., Weekly Programming Challenge #1"
+                    placeholder="e.g., JEE Main Mock Test #1"
                     required
                   />
                 </div>
@@ -226,179 +225,208 @@ export default function CreateContestPage() {
                   />
                 </div>
 
-                <div>
-                  <Label htmlFor="duration" className="flex items-center space-x-2">
-                    <Clock className="w-4 h-4" />
-                    <span>Duration (minutes)</span>
-                  </Label>
-                  <Input
-                    id="duration"
-                    type="number"
-                    min="30"
-                    max="480"
-                    value={contestData.duration}
-                    onChange={(e) => setContestData({ ...contestData, duration: Number(e.target.value) })}
-                    placeholder="120"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">Contest duration in minutes (30 min - 8 hours)</p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <Label htmlFor="duration" className="flex items-center space-x-2">
+                      <Clock className="w-4 h-4" />
+                      <span>Duration (minutes)</span>
+                    </Label>
+                    <Input
+                      id="duration"
+                      type="number"
+                      min="30"
+                      max="480"
+                      value={contestData.duration}
+                      onChange={(e) => setContestData({ ...contestData, duration: Number(e.target.value) })}
+                      placeholder="120"
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="passingMarks">Passing Marks (optional)</Label>
+                    <Input
+                      id="passingMarks"
+                      type="number"
+                      min="0"
+                      value={contestData.passingMarks}
+                      onChange={(e) => setContestData({ ...contestData, passingMarks: Number(e.target.value) })}
+                      placeholder="0"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Options</Label>
+                    <div className="space-y-2">
+                      <label className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          checked={contestData.allowReview}
+                          onChange={(e) => setContestData({ ...contestData, allowReview: e.target.checked })}
+                        />
+                        <span className="text-sm">Allow review</span>
+                      </label>
+                      <label className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          checked={contestData.showResults}
+                          onChange={(e) => setContestData({ ...contestData, showResults: e.target.checked })}
+                        />
+                        <span className="text-sm">Show results</span>
+                      </label>
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              <Tabs defaultValue="coding" className="w-full">
-                <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger value="coding" className="flex items-center space-x-2">
-                    <Code className="w-4 h-4" />
-                    <span>Coding Problems ({codingProblems.length})</span>
-                  </TabsTrigger>
-                  <TabsTrigger value="mcq" className="flex items-center space-x-2">
-                    <HelpCircle className="w-4 h-4" />
-                    <span>MCQ Problems ({mcqProblems.length})</span>
-                  </TabsTrigger>
-                </TabsList>
-
-                <TabsContent value="coding" className="space-y-4">
-                  <div className="flex justify-between items-center">
-                    <h3 className="text-lg font-semibold">Coding Problems</h3>
-                    <Button onClick={addCodingProblem} variant="outline" size="sm">
-                      <Plus className="w-4 h-4 mr-2" />
-                      Add Problem
+              {/* Instructions */}
+              <div className="space-y-4">
+                <div className="flex justify-between items-center">
+                  <Label>Contest Instructions</Label>
+                  <Button type="button" onClick={addInstruction} variant="outline" size="sm">
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add Instruction
+                  </Button>
+                </div>
+                {contestData.instructions.map((instruction, index) => (
+                  <div key={index} className="flex space-x-2">
+                    <Input
+                      value={instruction}
+                      onChange={(e) => updateInstruction(index, e.target.value)}
+                      placeholder={`Instruction ${index + 1}`}
+                    />
+                    <Button type="button" onClick={() => removeInstruction(index)} variant="ghost" size="sm">
+                      <Trash2 className="w-4 h-4" />
                     </Button>
                   </div>
+                ))}
+              </div>
 
-                  {codingProblems.map((problem, index) => (
-                    <Card key={problem.id}>
-                      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-base">Problem {index + 1}</CardTitle>
-                        <Button onClick={() => removeCodingProblem(index)} variant="ghost" size="sm">
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </CardHeader>
-                      <CardContent className="space-y-4">
-                        <div>
-                          <Label>Title</Label>
+              {/* MCQ Problems */}
+              <div className="space-y-4">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-lg font-semibold flex items-center space-x-2">
+                    <HelpCircle className="w-5 h-5" />
+                    <span>MCQ Questions ({mcqProblems.length})</span>
+                  </h3>
+                  <Button onClick={addMCQProblem} variant="outline" size="sm">
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add Question
+                  </Button>
+                </div>
+
+                {mcqProblems.map((problem, index) => (
+                  <Card key={problem.id}>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <CardTitle className="text-base">Question {index + 1}</CardTitle>
+                      <Button onClick={() => removeMCQProblem(index)} variant="ghost" size="sm">
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div>
+                        <Label>Question</Label>
+                        <Textarea
+                          value={problem.question}
+                          onChange={(e) => updateMCQProblem(index, "question", e.target.value)}
+                          placeholder="Enter your question"
+                          rows={3}
+                        />
+                      </div>
+
+                      {/* Question Image Upload */}
+                      <div>
+                        <Label className="flex items-center space-x-2">
+                          <ImageIcon className="w-4 h-4" />
+                          <span>Question Image (optional)</span>
+                        </Label>
+                        <div className="flex items-center space-x-2">
                           <Input
-                            value={problem.title}
-                            onChange={(e) => updateCodingProblem(index, "title", e.target.value)}
-                            placeholder="Problem title"
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0]
+                              if (file) handleImageUpload(file, index, "question")
+                            }}
+                            disabled={uploadingImage === `${index}-question-0`}
                           />
+                          {uploadingImage === `${index}-question-0` && (
+                            <div className="text-sm text-blue-600">Uploading...</div>
+                          )}
                         </div>
-                        <div>
-                          <Label>Description</Label>
-                          <Textarea
-                            value={problem.description}
-                            onChange={(e) => updateCodingProblem(index, "description", e.target.value)}
-                            placeholder="Problem description"
-                            rows={3}
-                          />
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <Label>Sample Input</Label>
-                            <Textarea
-                              value={problem.sampleInput}
-                              onChange={(e) => updateCodingProblem(index, "sampleInput", e.target.value)}
-                              placeholder="Sample input"
-                              rows={2}
+                        {problem.questionImage && (
+                          <div className="mt-2">
+                            <Image
+                              src={problem.questionImage || "/placeholder.svg"}
+                              alt="Question image"
+                              width={300}
+                              height={200}
+                              className="rounded border border-gray-200"
                             />
-                          </div>
-                          <div>
-                            <Label>Sample Output</Label>
-                            <Textarea
-                              value={problem.sampleOutput}
-                              onChange={(e) => updateCodingProblem(index, "sampleOutput", e.target.value)}
-                              placeholder="Expected output"
-                              rows={2}
-                            />
-                          </div>
-                        </div>
-                        <div className="space-y-2">
-                          <div className="flex justify-between items-center">
-                            <Label>Test Cases</Label>
-                            <Button onClick={() => addTestCase(index)} variant="outline" size="sm" type="button">
-                              <Plus className="w-4 h-4 mr-1" />
-                              Add Test Case
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => updateMCQProblem(index, "questionImage", undefined)}
+                              className="mt-1"
+                            >
+                              Remove Image
                             </Button>
                           </div>
-                          {problem.testCases?.map((testCase, testIndex) => (
-                            <div key={testIndex} className="border rounded p-3 space-y-2">
-                              <div className="flex justify-between items-center">
-                                <span className="text-sm font-medium">Test Case {testIndex + 1}</span>
-                                <Button
-                                  onClick={() => removeTestCase(index, testIndex)}
-                                  variant="ghost"
-                                  size="sm"
-                                  type="button"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </Button>
-                              </div>
-                              <div className="grid grid-cols-2 gap-2">
-                                <div>
-                                  <Label className="text-xs">Input</Label>
-                                  <Textarea
-                                    value={testCase.input}
-                                    onChange={(e) => updateTestCase(index, testIndex, "input", e.target.value)}
-                                    placeholder="Test input"
-                                    rows={2}
-                                    className="text-sm"
-                                  />
-                                </div>
-                                <div>
-                                  <Label className="text-xs">Expected Output</Label>
-                                  <Textarea
-                                    value={testCase.expectedOutput}
-                                    onChange={(e) => updateTestCase(index, testIndex, "expectedOutput", e.target.value)}
-                                    placeholder="Expected output"
-                                    rows={2}
-                                    className="text-sm"
-                                  />
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
+                        )}
+                      </div>
 
-                  {codingProblems.length === 0 && (
-                    <div className="text-center py-8 text-gray-500">
-                      No coding problems added yet. Click "Add Problem" to get started.
-                    </div>
-                  )}
-                </TabsContent>
-
-                <TabsContent value="mcq" className="space-y-4">
-                  <div className="flex justify-between items-center">
-                    <h3 className="text-lg font-semibold">MCQ Problems</h3>
-                    <Button onClick={addMCQProblem} variant="outline" size="sm">
-                      <Plus className="w-4 h-4 mr-2" />
-                      Add MCQ
-                    </Button>
-                  </div>
-
-                  {mcqProblems.map((problem, index) => (
-                    <Card key={problem.id}>
-                      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-base">MCQ {index + 1}</CardTitle>
-                        <Button onClick={() => removeMCQProblem(index)} variant="ghost" size="sm">
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </CardHeader>
-                      <CardContent className="space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div>
-                          <Label>Question</Label>
-                          <Textarea
-                            value={problem.question}
-                            onChange={(e) => updateMCQProblem(index, "question", e.target.value)}
-                            placeholder="Enter your question"
-                            rows={2}
+                          <Label>Marks</Label>
+                          <Input
+                            type="number"
+                            min="1"
+                            value={problem.marks}
+                            onChange={(e) => updateMCQProblem(index, "marks", Number(e.target.value))}
                           />
                         </div>
-                        <div className="space-y-2">
-                          <Label>Options</Label>
-                          {problem.options.map((option, optionIndex) => (
-                            <div key={optionIndex} className="flex items-center space-x-2">
+                        <div>
+                          <Label>Negative Marks</Label>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.25"
+                            value={problem.negativeMarks || 0}
+                            onChange={(e) => updateMCQProblem(index, "negativeMarks", Number(e.target.value))}
+                          />
+                        </div>
+                        <div>
+                          <Label>Difficulty</Label>
+                          <Select
+                            value={problem.difficulty}
+                            onValueChange={(value) => updateMCQProblem(index, "difficulty", value)}
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="easy">Easy</SelectItem>
+                              <SelectItem value="medium">Medium</SelectItem>
+                              <SelectItem value="hard">Hard</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+
+                      <div>
+                        <Label>Subject (optional)</Label>
+                        <Input
+                          value={problem.subject || ""}
+                          onChange={(e) => updateMCQProblem(index, "subject", e.target.value)}
+                          placeholder="e.g., Physics, Mathematics"
+                        />
+                      </div>
+
+                      <div className="space-y-3">
+                        <Label>Options</Label>
+                        {problem.options.map((option, optionIndex) => (
+                          <div key={optionIndex} className="space-y-2">
+                            <div className="flex items-center space-x-2">
                               <input
                                 type="radio"
                                 name={`correct-${index}`}
@@ -409,23 +437,78 @@ export default function CreateContestPage() {
                               <Input
                                 value={option}
                                 onChange={(e) => updateMCQOption(index, optionIndex, e.target.value)}
-                                placeholder={`Option ${optionIndex + 1}`}
+                                placeholder={`Option ${String.fromCharCode(65 + optionIndex)}`}
                               />
                             </div>
-                          ))}
-                          <p className="text-xs text-gray-500">Select the radio button next to the correct answer</p>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
 
-                  {mcqProblems.length === 0 && (
-                    <div className="text-center py-8 text-gray-500">
-                      No MCQ problems added yet. Click "Add MCQ" to get started.
-                    </div>
-                  )}
-                </TabsContent>
-              </Tabs>
+                            {/* Option Image Upload */}
+                            <div className="ml-6">
+                              <div className="flex items-center space-x-2">
+                                <Input
+                                  type="file"
+                                  accept="image/*"
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0]
+                                    if (file) handleImageUpload(file, index, "option", optionIndex)
+                                  }}
+                                  disabled={uploadingImage === `${index}-option-${optionIndex}`}
+                                  className="text-xs"
+                                />
+                                {uploadingImage === `${index}-option-${optionIndex}` && (
+                                  <div className="text-xs text-blue-600">Uploading...</div>
+                                )}
+                              </div>
+                              {problem.optionImages?.[optionIndex] && (
+                                <div className="mt-1">
+                                  <Image
+                                    src={problem.optionImages[optionIndex] || "/placeholder.svg"}
+                                    alt={`Option ${String.fromCharCode(65 + optionIndex)} image`}
+                                    width={150}
+                                    height={100}
+                                    className="rounded border border-gray-200"
+                                  />
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => {
+                                      const updated = [...mcqProblems]
+                                      if (updated[index].optionImages) {
+                                        updated[index].optionImages![optionIndex] = ""
+                                      }
+                                      setMcqProblems(updated)
+                                    }}
+                                    className="mt-1 text-xs"
+                                  >
+                                    Remove
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                        <p className="text-xs text-gray-500">Select the radio button next to the correct answer</p>
+                      </div>
+
+                      <div>
+                        <Label>Explanation (optional)</Label>
+                        <Textarea
+                          value={problem.explanation || ""}
+                          onChange={(e) => updateMCQProblem(index, "explanation", e.target.value)}
+                          placeholder="Explain the correct answer (optional)"
+                          rows={2}
+                        />
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+
+                {mcqProblems.length === 0 && (
+                  <div className="text-center py-8 text-gray-500">
+                    No questions added yet. Click "Add Question" to get started.
+                  </div>
+                )}
+              </div>
 
               <div className="flex justify-end space-x-4">
                 <Button type="button" variant="outline" onClick={() => router.push("/")}>

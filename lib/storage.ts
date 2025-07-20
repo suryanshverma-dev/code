@@ -1,5 +1,4 @@
 import { generateId } from "./utils"
-import type { ExecutionResult } from "./code-executor"
 
 export interface User {
   id: string
@@ -9,56 +8,54 @@ export interface User {
   createdAt: string
 }
 
-export interface TestCase {
-  input: string
-  expectedOutput: string
-}
-
-export interface CodingProblem {
-  id: string
-  title: string
-  description: string
-  sampleInput: string
-  sampleOutput: string
-  testCases?: TestCase[]
-}
-
 export interface MCQProblem {
   id: string
   question: string
+  questionImage?: string
   options: string[]
+  optionImages?: string[]
   correctAnswer: number
+  explanation?: string
+  marks: number
+  negativeMarks?: number
+  subject?: string
+  difficulty?: "easy" | "medium" | "hard"
 }
 
 export interface Contest {
   id: string
   title: string
   description: string
-  codingProblems: CodingProblem[]
   mcqProblems: MCQProblem[]
   createdBy: string
   createdAt: string
+  startTime?: string
+  endTime?: string
+  duration: number
+  totalMarks: number
+  passingMarks?: number
+  instructions?: string[]
+  allowReview?: boolean
+  showResults?: boolean
 }
 
 export interface Submission {
   id: string
   contestId: string
   userId: string
-  mcqAnswers: Record<string, number>
-  codingAnswers: Record<string, string>
+  answers: Record<string, number>
   score: number
+  totalMarks: number
+  percentage: number
   submittedAt: string
-}
-
-export interface CodeSubmission {
-  id: string
-  problemId: string
-  contestId: string
-  userId: string
-  code: string
-  language: string
-  result: ExecutionResult
-  submittedAt: string
+  timeTaken: number
+  reviewData?: {
+    correct: number
+    incorrect: number
+    unattempted: number
+    marksObtained: number
+    negativeMarks: number
+  }
 }
 
 // User management
@@ -119,41 +116,12 @@ export function saveSubmission(submission: Submission): void {
   localStorage.setItem("submissions", JSON.stringify(submissions))
 }
 
-// Code submission management
-export function getCodeSubmissions(): CodeSubmission[] {
-  if (typeof window === "undefined") return []
-  const submissions = localStorage.getItem("codeSubmissions")
-  return submissions ? JSON.parse(submissions) : []
+export function getUserSubmissions(userId: string): Submission[] {
+  const submissions = getSubmissions()
+  return submissions.filter((sub) => sub.userId === userId)
 }
 
-export async function saveCodeSubmission(submissionData: {
-  problemId: string
-  contestId: string
-  userId: string
-  code: string
-  language: string
-}): Promise<CodeSubmission> {
-  const { executeCode } = await import("./code-executor")
-  const contests = getContests()
-  const contest = contests.find((c) => c.id === submissionData.contestId)
-  const problem = contest?.codingProblems.find((p) => p.id === submissionData.problemId)
-
-  if (!problem) {
-    throw new Error("Problem not found")
-  }
-
-  const result = await executeCode(submissionData.code, submissionData.language, problem)
-
-  const submission: CodeSubmission = {
-    id: generateId(),
-    ...submissionData,
-    result,
-    submittedAt: new Date().toISOString(),
-  }
-
-  const submissions = getCodeSubmissions()
-  submissions.push(submission)
-  localStorage.setItem("codeSubmissions", JSON.stringify(submissions))
-
-  return submission
+export function getContestSubmissions(contestId: string): Submission[] {
+  const submissions = getSubmissions()
+  return submissions.filter((sub) => sub.contestId === contestId)
 }

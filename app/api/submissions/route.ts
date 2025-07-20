@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { saveSubmission } from "@/lib/server-storage"
+import { saveSubmission, getContest, calculateScore } from "@/lib/server-storage"
 import { authenticateToken } from "@/lib/auth-middleware"
 
 export async function POST(request: NextRequest) {
@@ -9,11 +9,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const submissionData = await request.json()
+    const { contestId, answers, timeTaken } = await request.json()
+
+    // Get contest to calculate score
+    const contest = await getContest(contestId)
+    if (!contest) {
+      return NextResponse.json({ error: "Contest not found" }, { status: 404 })
+    }
+
+    // Calculate score and review data
+    const scoreData = calculateScore(answers, contest.mcqProblems)
 
     const submission = await saveSubmission({
-      ...submissionData,
+      contestId,
       userId: user.id,
+      answers,
+      timeTaken,
+      submittedAt: new Date().toISOString(),
+      ...scoreData,
     })
 
     return NextResponse.json(submission)
