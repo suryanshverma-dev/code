@@ -1,23 +1,12 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { getUserSubmissions } from "@/lib/server-storage"
-import { authenticateToken } from "@/lib/auth-middleware"
+import { serverStorage } from "@/lib/server-storage"
 
 export async function GET(request: NextRequest, { params }: { params: { userId: string } }) {
   try {
-    const user = await authenticateToken(request)
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
-    // Users can only access their own submissions
-    if (user.id !== params.userId) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-    }
-
-    const submissions = await getUserSubmissions(params.userId)
+    const submissions = await serverStorage.getSubmissionsByUserId(params.userId)
     return NextResponse.json(submissions)
   } catch (error) {
-    console.error("Get user submissions error:", error)
-    return NextResponse.json({ error: "Server error" }, { status: 500 })
+    console.error("Error fetching user submissions:", error)
+    return NextResponse.json({ error: "Failed to fetch submissions" }, { status: 500 })
   }
 }

@@ -1,127 +1,97 @@
-import { generateId } from "./utils"
+import type { Contest, User, MCQSubmission } from "./types"
 
-export interface User {
-  id: string
-  name: string
-  email: string
-  password: string
-  createdAt: string
-}
-
-export interface MCQProblem {
-  id: string
-  question: string
-  questionImage?: string
-  options: string[]
-  optionImages?: string[]
-  correctAnswer: number
-  explanation?: string
-  marks: number
-  negativeMarks?: number
-  subject?: string
-  difficulty?: "easy" | "medium" | "hard"
-}
-
-export interface Contest {
-  id: string
-  title: string
-  description: string
-  mcqProblems: MCQProblem[]
-  createdBy: string
-  createdAt: string
-  startTime?: string
-  endTime?: string
-  duration: number
-  totalMarks: number
-  passingMarks?: number
-  instructions?: string[]
-  allowReview?: boolean
-  showResults?: boolean
-}
-
-export interface Submission {
-  id: string
-  contestId: string
-  userId: string
-  answers: Record<string, number>
-  score: number
-  totalMarks: number
-  percentage: number
-  submittedAt: string
-  timeTaken: number
-  reviewData?: {
-    correct: number
-    incorrect: number
-    unattempted: number
-    marksObtained: number
-    negativeMarks: number
-  }
-}
-
-// User management
-export function getUsers(): User[] {
-  if (typeof window === "undefined") return []
-  const users = localStorage.getItem("users")
-  return users ? JSON.parse(users) : []
-}
-
-export function createUser(name: string, email: string, password: string): User {
-  const users = getUsers()
-  const newUser: User = {
-    id: generateId(),
-    name,
-    email,
-    password,
+// In-memory storage for development
+const users: User[] = [
+  {
+    id: "1",
+    name: "Admin User",
+    email: "admin@example.com",
     createdAt: new Date().toISOString(),
-  }
-  users.push(newUser)
-  localStorage.setItem("users", JSON.stringify(users))
-  return newUser
-}
+  },
+]
 
-// Contest management
-export function getContests(): Contest[] {
-  if (typeof window === "undefined") return []
-  const contests = localStorage.getItem("contests")
-  return contests ? JSON.parse(contests) : []
-}
-
-export function getContest(id: string): Contest | null {
-  const contests = getContests()
-  return contests.find((contest) => contest.id === id) || null
-}
-
-export function createContest(contestData: Omit<Contest, "id" | "createdAt">): Contest {
-  const contests = getContests()
-  const newContest: Contest = {
-    ...contestData,
-    id: generateId(),
+const contests: Contest[] = [
+  {
+    id: "1",
+    title: "Sample Physics MCQ Test",
+    description: "Basic physics concepts test with 10 questions",
+    mcqProblems: [
+      {
+        id: "1",
+        question: "What is the SI unit of force?",
+        options: [
+          { id: "1a", text: "Newton", isCorrect: true },
+          { id: "1b", text: "Joule", isCorrect: false },
+          { id: "1c", text: "Watt", isCorrect: false },
+          { id: "1d", text: "Pascal", isCorrect: false },
+        ],
+        explanation: "Newton is the SI unit of force, named after Sir Isaac Newton.",
+        subject: "Physics",
+        difficulty: "easy",
+        marks: 4,
+        negativeMarks: 1,
+      },
+    ],
+    duration: 30,
+    totalMarks: 40,
+    instructions: "Read all questions carefully. Each question carries 4 marks with -1 negative marking.",
+    createdBy: "Admin User",
     createdAt: new Date().toISOString(),
-  }
-  contests.push(newContest)
-  localStorage.setItem("contests", JSON.stringify(contests))
-  return newContest
-}
+    isActive: true,
+  },
+]
 
-// Submission management
-export function getSubmissions(): Submission[] {
-  if (typeof window === "undefined") return []
-  const submissions = localStorage.getItem("submissions")
-  return submissions ? JSON.parse(submissions) : []
-}
+const submissions: MCQSubmission[] = []
 
-export function saveSubmission(submission: Submission): void {
-  const submissions = getSubmissions()
-  submissions.push(submission)
-  localStorage.setItem("submissions", JSON.stringify(submissions))
-}
+export const storage = {
+  // Users
+  getUsers: () => users,
+  getUserById: (id: string) => users.find((user) => user.id === id),
+  getUserByEmail: (email: string) => users.find((user) => user.email === email),
+  createUser: (user: Omit<User, "id" | "createdAt">) => {
+    const newUser: User = {
+      ...user,
+      id: Date.now().toString(),
+      createdAt: new Date().toISOString(),
+    }
+    users.push(newUser)
+    return newUser
+  },
 
-export function getUserSubmissions(userId: string): Submission[] {
-  const submissions = getSubmissions()
-  return submissions.filter((sub) => sub.userId === userId)
-}
+  // Contests
+  getContests: () => contests,
+  getContestById: (id: string) => contests.find((contest) => contest.id === id),
+  createContest: (contest: Omit<Contest, "id" | "createdAt">) => {
+    const newContest: Contest = {
+      ...contest,
+      id: Date.now().toString(),
+      createdAt: new Date().toISOString(),
+    }
+    contests.push(newContest)
+    return newContest
+  },
+  updateContest: (id: string, updates: Partial<Contest>) => {
+    const index = contests.findIndex((contest) => contest.id === id)
+    if (index !== -1) {
+      contests[index] = { ...contests[index], ...updates }
+      return contests[index]
+    }
+    return null
+  },
 
-export function getContestSubmissions(contestId: string): Submission[] {
-  const submissions = getSubmissions()
-  return submissions.filter((sub) => sub.contestId === contestId)
+  // Submissions
+  getSubmissions: () => submissions,
+  getSubmissionById: (id: string) => submissions.find((sub) => sub.id === id),
+  getSubmissionsByUserId: (userId: string) => submissions.filter((sub) => sub.userId === userId),
+  getSubmissionsByContestId: (contestId: string) => submissions.filter((sub) => sub.contestId === contestId),
+  getUserSubmissionForContest: (userId: string, contestId: string) =>
+    submissions.find((sub) => sub.userId === userId && sub.contestId === contestId),
+  createSubmission: (submission: Omit<MCQSubmission, "id">) => {
+    const newSubmission: MCQSubmission = {
+      ...submission,
+      id: Date.now().toString(),
+    }
+    submissions.push(newSubmission)
+    return newSubmission
+  },
 }

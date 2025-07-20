@@ -1,28 +1,30 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { saveSubmission, getContest, calculateScore } from "@/lib/server-storage"
-import { authenticateToken } from "@/lib/auth-middleware"
+import { serverStorage } from "@/lib/server-storage"
 
 export async function POST(request: NextRequest) {
   try {
-    const user = await authenticateToken(request)
+    const { contestId, userId, answers, timeTaken } = await request.json()
+
+    // Check if user already submitted
+    const existingSubmission = await serverStorage.getUserSubmissionForContest(userId, contestId)
+    if (existingSubmission) {
+      return NextResponse.json({ error: "Already submitted" }, { status: 400 })
+    }
+
+    // Calculate score
+    const scoreData = await serverStorage.calculateScore(contestId, answers)
+
+    // Get user name
+    const user = await serverStorage.getUserById(userId)
     if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+      return NextResponse.json({ error: "User not found" }, { status: 404 })
     }
 
-    const { contestId, answers, timeTaken } = await request.json()
-
-    // Get contest to calculate score
-    const contest = await getContest(contestId)
-    if (!contest) {
-      return NextResponse.json({ error: "Contest not found" }, { status: 404 })
-    }
-
-    // Calculate score and review data
-    const scoreData = calculateScore(answers, contest.mcqProblems)
-
-    const submission = await saveSubmission({
+    // Create submission
+    const submission = await serverStorage.createSubmission({
       contestId,
-      userId: user.id,
+      userId,
+      userName: user.name,
       answers,
       timeTaken,
       submittedAt: new Date().toISOString(),
@@ -31,7 +33,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(submission)
   } catch (error) {
-    console.error("Save submission error:", error)
-    return NextResponse.json({ error: "Server error" }, { status: 500 })
+    console.error("Error creating submission:", error)
+    return NextResponse.json({ error: "Failed to submit answers" }, { status: 500 })
   }
 }

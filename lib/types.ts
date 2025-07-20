@@ -5,18 +5,23 @@ export interface User {
   createdAt: string
 }
 
+export interface MCQOption {
+  id: string
+  text: string
+  imageUrl?: string
+  isCorrect: boolean
+}
+
 export interface MCQProblem {
   id: string
   question: string
-  questionImage?: string // URL or path to question image
-  options: string[]
-  optionImages?: string[] // Array of image URLs for options (optional)
-  correctAnswer: number
+  questionImage?: string
+  options: MCQOption[]
   explanation?: string
-  marks: number
-  negativeMarks?: number
   subject?: string
-  difficulty?: "easy" | "medium" | "hard"
+  difficulty: "easy" | "medium" | "hard"
+  marks: number
+  negativeMarks: number
 }
 
 export interface Contest {
@@ -24,49 +29,40 @@ export interface Contest {
   title: string
   description: string
   mcqProblems: MCQProblem[]
-  createdBy: string
-  createdAt: string
-  startTime?: string
-  endTime?: string
   duration: number // in minutes
   totalMarks: number
-  passingMarks?: number
-  instructions?: string[]
-  allowReview?: boolean
-  showResults?: boolean
+  instructions?: string
+  startTime?: string
+  endTime?: string
+  createdBy: string
+  createdAt: string
+  isActive: boolean
 }
 
-export interface Submission {
+export interface MCQSubmission {
   id: string
   contestId: string
   userId: string
-  answers: Record<string, number> // questionId -> selectedOption
+  userName: string
+  answers: Record<string, string> // questionId -> selectedOptionId
   score: number
-  totalMarks: number
-  percentage: number
+  totalQuestions: number
+  correctAnswers: number
+  wrongAnswers: number
+  unattempted: number
   submittedAt: string
   timeTaken: number // in seconds
-  reviewData?: {
-    correct: number
-    incorrect: number
-    unattempted: number
-    marksObtained: number
-    negativeMarks: number
-  }
 }
 
-export interface ContestAnalytics {
-  contestId: string
-  totalParticipants: number
-  averageScore: number
-  highestScore: number
-  lowestScore: number
-  passPercentage: number
-  questionWiseAnalysis: {
+export interface ContestResult {
+  submission: MCQSubmission
+  questionResults: Array<{
     questionId: string
-    correctAttempts: number
-    incorrectAttempts: number
-    unattempted: number
-    accuracy: number
-  }[]
+    question: string
+    selectedOptionId?: string
+    correctOptionId: string
+    isCorrect: boolean
+    marks: number
+    explanation?: string
+  }>
 }

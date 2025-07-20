@@ -1,44 +1,31 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { writeFile } from "fs/promises"
+import { writeFile, mkdir } from "fs/promises"
 import { join } from "path"
-import { authenticateToken } from "@/lib/auth-middleware"
 
 export async function POST(request: NextRequest) {
   try {
-    const user = await authenticateToken(request)
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
-    const data = await request.formData()
-    const file: File | null = data.get("image") as unknown as File
+    const formData = await request.formData()
+    const file = formData.get("file") as File
 
     if (!file) {
-      return NextResponse.json({ error: "No file uploaded" }, { status: 400 })
+      return NextResponse.json({ error: "No file provided" }, { status: 400 })
     }
 
     // Validate file type
-    const allowedTypes = ["image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp"]
+    const allowedTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"]
     if (!allowedTypes.includes(file.type)) {
-      return NextResponse.json({ error: "Invalid file type. Only images are allowed." }, { status: 400 })
+      return NextResponse.json({ error: "Invalid file type" }, { status: 400 })
     }
 
-    // Validate file size (max 5MB)
-    const maxSize = 5 * 1024 * 1024 // 5MB
-    if (file.size > maxSize) {
-      return NextResponse.json({ error: "File too large. Maximum size is 5MB." }, { status: 400 })
+    // Validate file size (5MB max)
+    if (file.size > 5 * 1024 * 1024) {
+      return NextResponse.json({ error: "File too large" }, { status: 400 })
     }
 
     const bytes = await file.arrayBuffer()
     const buffer = Buffer.from(bytes)
 
-    // Generate unique filename
-    const timestamp = Date.now()
-    const filename = `${timestamp}-${file.name.replace(/[^a-zA-Z0-9.-]/g, "")}`
-    const path = join(process.cwd(), "public", "uploads", filename)
-
-    // Ensure uploads directory exists
-    const { mkdir } = await import("fs/promises")
+    // Create uploads directory if it doesn't exist
     const uploadsDir = join(process.cwd(), "public", "uploads")
     try {
       await mkdir(uploadsDir, { recursive: true })
@@ -46,12 +33,15 @@ export async function POST(request: NextRequest) {
       // Directory might already exist
     }
 
-    await writeFile(path, buffer)
+    // Generate unique filename
+    const filename = `${Date.now()}-${file.name}`
+    const filepath = join(uploadsDir, filename)
 
-    const url = `/uploads/${filename}`
-    return NextResponse.json({ url })
+    await writeFile(filepath, buffer)
+
+    return NextResponse.json({ url: `/uploads/${filename}` })
   } catch (error) {
-    console.error("Upload error:", error)
+    console.error("Error uploading file:", error)
     return NextResponse.json({ error: "Upload failed" }, { status: 500 })
   }
 }

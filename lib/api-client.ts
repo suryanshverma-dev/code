@@ -1,149 +1,89 @@
-import type { User, Contest, Submission, MCQProblem } from "./types"
+import type { Contest, User, MCQSubmission } from "./types"
 
 class ApiClient {
-  private baseUrl = "/api"
+  private async request<T>(url: string, options?: RequestInit): Promise<T> {
+    const response = await fetch(url, {
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+      },
+      ...options,
+    })
 
-  // Auth methods
-  async login(email: string, password: string): Promise<{ user: User; token: string }> {
-    const response = await fetch(`${this.baseUrl}/auth/login`, {
+    if (!response.ok) {
+      throw new Error(`API Error: ${response.status}`)
+    }
+
+    return response.json()
+  }
+
+  // Auth
+  async login(email: string, password: string): Promise<User> {
+    return this.request<User>("/api/auth/login", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
     })
-
-    if (!response.ok) {
-      const error = await response.json()
-      throw new Error(error.error || "Login failed")
-    }
-
-    return response.json()
   }
 
-  async signup(name: string, email: string, password: string): Promise<{ user: User; token: string }> {
-    const response = await fetch(`${this.baseUrl}/auth/signup`, {
+  async signup(name: string, email: string, password: string): Promise<User> {
+    return this.request<User>("/api/auth/signup", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, email, password }),
     })
-
-    if (!response.ok) {
-      const error = await response.json()
-      throw new Error(error.error || "Signup failed")
-    }
-
-    return response.json()
   }
 
-  // Contest methods
+  // Contests
   async getContests(): Promise<Contest[]> {
-    const response = await fetch(`${this.baseUrl}/contests`)
-    if (!response.ok) throw new Error("Failed to fetch contests")
-    return response.json()
+    return this.request<Contest[]>("/api/contests")
   }
 
   async getContest(id: string): Promise<Contest> {
-    const response = await fetch(`${this.baseUrl}/contests/${id}`)
-    if (!response.ok) throw new Error("Failed to fetch contest")
-    return response.json()
+    return this.request<Contest>(`/api/contests/${id}`)
   }
 
-  async createContest(contestData: {
-    title: string
-    description: string
-    duration: number
-    mcqProblems: MCQProblem[]
-    instructions?: string[]
-    allowReview?: boolean
-    showResults?: boolean
-    passingMarks?: number
-  }): Promise<Contest> {
-    const token = localStorage.getItem("token")
-    const response = await fetch(`${this.baseUrl}/contests`, {
+  async createContest(contest: Omit<Contest, "id" | "createdAt">): Promise<Contest> {
+    return this.request<Contest>("/api/contests", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(contestData),
+      body: JSON.stringify(contest),
     })
-
-    if (!response.ok) {
-      const error = await response.json()
-      throw new Error(error.error || "Failed to create contest")
-    }
-
-    return response.json()
   }
 
-  // Submission methods
-  async saveSubmission(submissionData: {
-    contestId: string
-    answers: Record<string, number>
-    timeTaken: number
-  }): Promise<Submission> {
-    const token = localStorage.getItem("token")
-    const response = await fetch(`${this.baseUrl}/submissions`, {
+  // Submissions
+  async submitAnswers(
+    contestId: string,
+    userId: string,
+    answers: Record<string, string>,
+    timeTaken: number,
+  ): Promise<MCQSubmission> {
+    return this.request<MCQSubmission>("/api/submissions", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(submissionData),
+      body: JSON.stringify({ contestId, userId, answers, timeTaken }),
     })
-
-    if (!response.ok) {
-      const error = await response.json()
-      throw new Error(error.error || "Failed to save submission")
-    }
-
-    return response.json()
   }
 
-  async getUserSubmissions(userId: string): Promise<Submission[]> {
-    const token = localStorage.getItem("token")
-    const response = await fetch(`${this.baseUrl}/submissions/user/${userId}`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    })
-
-    if (!response.ok) throw new Error("Failed to fetch user submissions")
-    return response.json()
+  async getUserSubmissions(userId: string): Promise<MCQSubmission[]> {
+    return this.request<MCQSubmission[]>(`/api/submissions/user/${userId}`)
   }
 
-  async getContestSubmissions(contestId: string): Promise<Submission[]> {
-    const token = localStorage.getItem("token")
-    const response = await fetch(`${this.baseUrl}/submissions/contest/${contestId}`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    })
-
-    if (!response.ok) throw new Error("Failed to fetch contest submissions")
-    return response.json()
+  async getContestSubmissions(contestId: string): Promise<MCQSubmission[]> {
+    return this.request<MCQSubmission[]>(`/api/submissions/contest/${contestId}`)
   }
 
-  // Image upload method
-  async uploadImage(file: File): Promise<string> {
+  // File upload
+  async uploadFile(file: File): Promise<{ url: string }> {
     const formData = new FormData()
-    formData.append("image", file)
+    formData.append("file", file)
 
-    const token = localStorage.getItem("token")
-    const response = await fetch(`${this.baseUrl}/upload`, {
+    const response = await fetch("/api/upload", {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
       body: formData,
     })
 
     if (!response.ok) {
-      const error = await response.json()
-      throw new Error(error.error || "Failed to upload image")
+      throw new Error("Upload failed")
     }
 
-    const result = await response.json()
-    return result.url
+    return response.json()
   }
 }
 

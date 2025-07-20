@@ -20,9 +20,10 @@ export default function HomePage() {
     const fetchContests = async () => {
       try {
         const contestsData = await apiClient.getContests()
-        setContests(contestsData)
+        setContests(contestsData || [])
       } catch (error) {
         console.error("Failed to fetch contests:", error)
+        setContests([])
       } finally {
         setLoading(false)
       }
@@ -147,7 +148,7 @@ export default function HomePage() {
                     <div className="grid grid-cols-2 gap-4 text-sm">
                       <div className="flex items-center space-x-2">
                         <BookOpen className="w-4 h-4 text-gray-500" />
-                        <span>{contest.mcqProblems.length} Questions</span>
+                        <span>{contest.mcqProblems?.length || 0} Questions</span>
                       </div>
                       <div className="flex items-center space-x-2">
                         <Clock className="w-4 h-4 text-gray-500" />
