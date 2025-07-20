@@ -5,42 +5,33 @@ import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { ArrowLeft, Trophy, Clock, Target, TrendingUp, Calendar, BookOpen } from "lucide-react"
+import { ArrowLeft, Trophy, Clock, Target, TrendingUp, Calendar, BookOpen, User } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
-import type { Submission, Contest } from "@/lib/types"
-import { apiClient } from "@/lib/api-client"
+import { storage } from "@/lib/storage"
+import type { MCQSubmission, Contest } from "@/lib/types"
 
 export default function ProfilePage() {
   const { user } = useAuth()
   const router = useRouter()
-  const [submissions, setSubmissions] = useState<Submission[]>([])
+  const [submissions, setSubmissions] = useState<MCQSubmission[]>([])
   const [contests, setContests] = useState<Contest[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const fetchData = async () => {
-      if (!user) return
-
-      try {
-        const [userSubmissions, allContests] = await Promise.all([
-          apiClient.getUserSubmissions(user.id),
-          apiClient.getContests(),
-        ])
-
-        setSubmissions(userSubmissions)
-        setContests(allContests)
-      } catch (error) {
-        console.error("Failed to fetch profile data:", error)
-      } finally {
-        setLoading(false)
-      }
+    if (!user) {
+      router.push("/login")
+      return
     }
 
-    fetchData()
-  }, [user])
+    const userSubmissions = storage.getSubmissionsByUserId(user.id)
+    const allContests = storage.getContests()
+
+    setSubmissions(userSubmissions)
+    setContests(allContests)
+    setLoading(false)
+  }, [user, router])
 
   if (!user) {
-    router.push("/login")
     return null
   }
 
@@ -67,7 +58,7 @@ export default function ProfilePage() {
         averageScore: 0,
         bestScore: 0,
         totalMarks: 0,
-        passedExams: 0,
+        averagePercentage: 0,
       }
     }
 
@@ -75,18 +66,22 @@ export default function ProfilePage() {
     const totalScore = submissions.reduce((sum, sub) => sum + sub.score, 0)
     const averageScore = totalScore / totalExams
     const bestScore = Math.max(...submissions.map((sub) => sub.score))
-    const totalMarks = submissions.reduce((sum, sub) => sum + sub.totalMarks, 0)
-    const passedExams = submissions.filter((sub) => {
+    const totalMarks = submissions.reduce((sum, sub) => sum + sub.totalQuestions, 0)
+
+    // Calculate average percentage
+    const totalPercentage = submissions.reduce((sum, sub) => {
       const contest = contests.find((c) => c.id === sub.contestId)
-      return contest?.passingMarks ? sub.score >= contest.passingMarks : sub.percentage >= 50
-    }).length
+      const maxScore = contest?.totalMarks || sub.totalQuestions * 4 // Fallback calculation
+      return sum + (sub.score / maxScore) * 100
+    }, 0)
+    const averagePercentage = totalPercentage / totalExams
 
     return {
       totalExams,
       averageScore: Math.round(averageScore * 100) / 100,
       bestScore,
       totalMarks,
-      passedExams,
+      averagePercentage: Math.round(averagePercentage * 100) / 100,
     }
   }
 
@@ -114,27 +109,20 @@ export default function ProfilePage() {
         {/* User Info */}
         <Card className="mb-8">
           <CardHeader>
-            <CardTitle>User Information</CardTitle>
+            <CardTitle className="flex items-center space-x-2">
+              <User className="w-5 h-5" />
+              <span>User Information</span>
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <div className="text-sm text-gray-600">Name</div>
-                <div className="font-semibold">{user.name}</div>
+                <div className="font-semibold text-lg">{user.name}</div>
               </div>
               <div>
                 <div className="text-sm text-gray-600">Email</div>
-                <div className="font-semibold">{user.email}</div>
-              </div>
-              <div>
-                <div className="text-sm text-gray-600">Member Since</div>
-                <div className="font-semibold">
-                  {new Date(user.createdAt).toLocaleDateString("en-US", {
-                    year: "numeric",
-                    month: "long",
-                    day: "numeric",
-                  })}
-                </div>
+                <div className="font-semibold text-lg">{user.email}</div>
               </div>
             </div>
           </CardContent>
@@ -183,8 +171,8 @@ export default function ProfilePage() {
               <div className="flex items-center space-x-2">
                 <Target className="w-8 h-8 text-purple-600" />
                 <div>
-                  <div className="text-2xl font-bold text-purple-600">{stats.passedExams}</div>
-                  <div className="text-sm text-gray-600">Passed Exams</div>
+                  <div className="text-2xl font-bold text-purple-600">{stats.averagePercentage}%</div>
+                  <div className="text-sm text-gray-600">Average %</div>
                 </div>
               </div>
             </CardContent>
@@ -210,63 +198,62 @@ export default function ProfilePage() {
                 {submissions
                   .sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime())
                   .slice(0, 10)
-                  .map((submission) => (
-                    <div
-                      key={submission.id}
-                      className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:bg-gray-50"
-                    >
-                      <div className="flex-1">
-                        <h4 className="font-semibold text-gray-900">{getContestTitle(submission.contestId)}</h4>
-                        <div className="flex items-center space-x-4 mt-1 text-sm text-gray-600">
-                          <div className="flex items-center space-x-1">
-                            <Calendar className="w-3 h-3" />
-                            <span>
-                              {new Date(submission.submittedAt).toLocaleDateString("en-US", {
-                                month: "short",
-                                day: "numeric",
-                                year: "numeric",
-                              })}
-                            </span>
-                          </div>
-                          <div className="flex items-center space-x-1">
-                            <Clock className="w-3 h-3" />
-                            <span>{Math.floor(submission.timeTaken / 60)} min</span>
-                          </div>
-                          {submission.reviewData && (
-                            <div className="flex items-center space-x-2">
-                              <span className="text-green-600">✓ {submission.reviewData.correct}</span>
-                              <span className="text-red-600">✗ {submission.reviewData.incorrect}</span>
-                              <span className="text-gray-500">— {submission.reviewData.unattempted}</span>
+                  .map((submission) => {
+                    const contest = contests.find((c) => c.id === submission.contestId)
+                    const percentage = contest ? (submission.score / contest.totalMarks) * 100 : 0
+
+                    return (
+                      <div
+                        key={submission.id}
+                        className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:bg-gray-50"
+                      >
+                        <div className="flex-1">
+                          <h4 className="font-semibold text-gray-900">{getContestTitle(submission.contestId)}</h4>
+                          <div className="flex items-center space-x-4 mt-1 text-sm text-gray-600">
+                            <div className="flex items-center space-x-1">
+                              <Calendar className="w-3 h-3" />
+                              <span>
+                                {new Date(submission.submittedAt).toLocaleDateString("en-US", {
+                                  month: "short",
+                                  day: "numeric",
+                                  year: "numeric",
+                                })}
+                              </span>
                             </div>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex items-center space-x-4">
-                        <div className="text-right">
-                          <div className="text-lg font-bold text-gray-900">
-                            {submission.score}/{submission.totalMarks}
+                            <div className="flex items-center space-x-1">
+                              <Clock className="w-3 h-3" />
+                              <span>{Math.floor(submission.timeTaken / 60)} min</span>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <span className="text-green-600">✓ {submission.correctAnswers}</span>
+                              <span className="text-red-600">✗ {submission.wrongAnswers}</span>
+                              <span className="text-gray-500">— {submission.unattempted}</span>
+                            </div>
                           </div>
-                          <div className="text-sm text-gray-600">{submission.percentage.toFixed(1)}%</div>
                         </div>
-                        <Badge
-                          variant={submission.percentage >= 50 ? "default" : "destructive"}
-                          className={
-                            submission.percentage >= 80
-                              ? "bg-green-100 text-green-800"
-                              : submission.percentage >= 50
-                                ? "bg-yellow-100 text-yellow-800"
-                                : ""
-                          }
-                        >
-                          {submission.percentage >= 80
-                            ? "Excellent"
-                            : submission.percentage >= 50
-                              ? "Good"
-                              : "Needs Improvement"}
-                        </Badge>
+                        <div className="flex items-center space-x-4">
+                          <div className="text-right">
+                            <div className="text-lg font-bold text-gray-900">
+                              {submission.score}/{contest?.totalMarks || submission.totalQuestions * 4}
+                            </div>
+                            <div className="text-sm text-gray-600">{percentage.toFixed(1)}%</div>
+                          </div>
+                          <Badge
+                            variant={percentage >= 50 ? "default" : "destructive"}
+                            className={
+                              percentage >= 80
+                                ? "bg-green-100 text-green-800"
+                                : percentage >= 50
+                                  ? "bg-yellow-100 text-yellow-800"
+                                  : ""
+                            }
+                          >
+                            {percentage >= 80 ? "Excellent" : percentage >= 50 ? "Good" : "Needs Improvement"}
+                          </Badge>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
               </div>
             )}
           </CardContent>

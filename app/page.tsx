@@ -5,10 +5,10 @@ import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Plus, Clock, BookOpen, Trophy, Calendar, User } from "lucide-react"
+import { Plus, Clock, BookOpen, Trophy, Calendar, User, LogOut } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
+import { storage } from "@/lib/storage"
 import type { Contest } from "@/lib/types"
-import { apiClient } from "@/lib/api-client"
 
 export default function HomePage() {
   const { user, logout } = useAuth()
@@ -17,23 +17,18 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const fetchContests = async () => {
-      try {
-        const contestsData = await apiClient.getContests()
-        setContests(contestsData || [])
-      } catch (error) {
-        console.error("Failed to fetch contests:", error)
-        setContests([])
-      } finally {
-        setLoading(false)
-      }
+    if (!user) {
+      router.push("/login")
+      return
     }
 
-    fetchContests()
-  }, [])
+    // Load contests from localStorage
+    const contestsData = storage.getContests()
+    setContests(contestsData || [])
+    setLoading(false)
+  }, [user, router])
 
   if (!user) {
-    router.push("/login")
     return null
   }
 
@@ -63,6 +58,10 @@ export default function HomePage() {
     }
   }
 
+  const hasUserSubmitted = (contestId: string) => {
+    return storage.getUserSubmissionForContest(user.id, contestId) !== null
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white shadow-sm border-b">
@@ -80,8 +79,9 @@ export default function HomePage() {
               <Button variant="outline" onClick={() => router.push("/profile")}>
                 Profile
               </Button>
-              <Button variant="ghost" onClick={logout}>
-                Logout
+              <Button variant="ghost" onClick={logout} className="flex items-center space-x-2">
+                <LogOut className="w-4 h-4" />
+                <span>Logout</span>
               </Button>
             </div>
           </div>
@@ -133,15 +133,24 @@ export default function HomePage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {contests.map((contest) => {
               const contestStatus = getContestStatus(contest)
+              const userSubmitted = hasUserSubmitted(contest.id)
+
               return (
-                <Card key={contest.id} className="hover:shadow-lg transition-shadow cursor-pointer">
+                <Card key={contest.id} className="hover:shadow-lg transition-shadow">
                   <CardHeader>
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
                         <CardTitle className="text-lg mb-2">{contest.title}</CardTitle>
                         <CardDescription className="line-clamp-2">{contest.description}</CardDescription>
                       </div>
-                      <Badge className={contestStatus.color}>{contestStatus.status}</Badge>
+                      <div className="flex flex-col items-end space-y-1">
+                        <Badge className={contestStatus.color}>{contestStatus.status}</Badge>
+                        {userSubmitted && (
+                          <Badge variant="secondary" className="text-xs">
+                            Submitted
+                          </Badge>
+                        )}
+                      </div>
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-4">
@@ -160,28 +169,29 @@ export default function HomePage() {
                       </div>
                       <div className="flex items-center space-x-2">
                         <User className="w-4 h-4 text-gray-500" />
-                        <span>{contest.createdBy}</span>
+                        <span className="truncate">{contest.createdBy}</span>
                       </div>
                     </div>
 
-                    {contest.startTime && (
-                      <div className="flex items-center space-x-2 text-sm text-gray-600">
-                        <Calendar className="w-4 h-4" />
-                        <span>Starts: {formatDate(contest.startTime)}</span>
-                      </div>
-                    )}
+                    <div className="flex items-center space-x-2 text-sm text-gray-600">
+                      <Calendar className="w-4 h-4" />
+                      <span>Created: {formatDate(contest.createdAt)}</span>
+                    </div>
 
                     <div className="flex space-x-2">
                       <Button
                         onClick={() => router.push(`/contest/${contest.id}`)}
                         className="flex-1"
-                        disabled={contestStatus.status === "ended"}
+                        disabled={contestStatus.status === "ended" && !userSubmitted}
+                        variant={userSubmitted ? "outline" : "default"}
                       >
-                        {contestStatus.status === "upcoming"
-                          ? "View Details"
-                          : contestStatus.status === "live"
-                            ? "Take Exam"
-                            : "View Results"}
+                        {userSubmitted
+                          ? "View Results"
+                          : contestStatus.status === "upcoming"
+                            ? "View Details"
+                            : contestStatus.status === "live"
+                              ? "Take Exam"
+                              : "Exam Ended"}
                       </Button>
                     </div>
                   </CardContent>

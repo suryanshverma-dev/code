@@ -7,8 +7,8 @@ import { AuthProvider } from "@/lib/auth-context"
 const inter = Inter({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
-  title: "CodeContest Platform",
-  description: "A platform for hosting coding and MCQ contests",
+  title: "MCQ Contest Platform",
+  description: "Take MCQ-based examinations and tests",
     generator: 'v0.dev'
 }
 

@@ -1,6 +1,7 @@
 "use client"
 
 import type React from "react"
+
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -10,11 +11,10 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { ArrowLeft, Plus, Trash2, Clock, HelpCircle, ImageIcon } from "lucide-react"
+import { ArrowLeft, Plus, Trash2, Clock, HelpCircle, ImageIcon, Upload } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
-import type { MCQProblem } from "@/lib/types"
-import { generateId } from "@/lib/utils"
-import { apiClient } from "@/lib/api-client"
+import { storage } from "@/lib/storage"
+import type { MCQProblem, MCQOption } from "@/lib/types"
 import Image from "next/image"
 
 export default function CreateContestPage() {
@@ -27,11 +27,9 @@ export default function CreateContestPage() {
   const [contestData, setContestData] = useState({
     title: "",
     description: "",
-    duration: 120, // Default 2 hours
-    instructions: [""],
-    allowReview: true,
-    showResults: true,
-    passingMarks: 0,
+    duration: 60,
+    instructions:
+      "• Each question carries marks as specified\n• Wrong answers may have negative marking\n• Read all questions carefully\n• Submit before time expires",
   })
 
   const [mcqProblems, setMcqProblems] = useState<MCQProblem[]>([])
@@ -42,18 +40,22 @@ export default function CreateContestPage() {
   }
 
   const addMCQProblem = () => {
-    setMcqProblems([
-      ...mcqProblems,
-      {
-        id: generateId(),
-        question: "",
-        options: ["", "", "", ""],
-        correctAnswer: 0,
-        marks: 1,
-        negativeMarks: 0,
-        difficulty: "medium",
-      },
-    ])
+    const newProblem: MCQProblem = {
+      id: `q_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      question: "",
+      options: [
+        { id: `opt_${Date.now()}_a`, text: "", isCorrect: false },
+        { id: `opt_${Date.now()}_b`, text: "", isCorrect: false },
+        { id: `opt_${Date.now()}_c`, text: "", isCorrect: false },
+        { id: `opt_${Date.now()}_d`, text: "", isCorrect: false },
+      ],
+      explanation: "",
+      subject: "",
+      difficulty: "medium",
+      marks: 4,
+      negativeMarks: 1,
+    }
+    setMcqProblems([...mcqProblems, newProblem])
   }
 
   const updateMCQProblem = (index: number, field: keyof MCQProblem, value: any) => {
@@ -62,34 +64,25 @@ export default function CreateContestPage() {
     setMcqProblems(updated)
   }
 
-  const updateMCQOption = (problemIndex: number, optionIndex: number, value: string) => {
+  const updateMCQOption = (problemIndex: number, optionIndex: number, field: keyof MCQOption, value: any) => {
     const updated = [...mcqProblems]
-    updated[problemIndex].options[optionIndex] = value
+    updated[problemIndex].options[optionIndex] = {
+      ...updated[problemIndex].options[optionIndex],
+      [field]: value,
+    }
+    setMcqProblems(updated)
+  }
+
+  const setCorrectAnswer = (problemIndex: number, optionIndex: number) => {
+    const updated = [...mcqProblems]
+    updated[problemIndex].options.forEach((option, idx) => {
+      option.isCorrect = idx === optionIndex
+    })
     setMcqProblems(updated)
   }
 
   const removeMCQProblem = (index: number) => {
     setMcqProblems(mcqProblems.filter((_, i) => i !== index))
-  }
-
-  const addInstruction = () => {
-    setContestData({
-      ...contestData,
-      instructions: [...contestData.instructions, ""],
-    })
-  }
-
-  const updateInstruction = (index: number, value: string) => {
-    const updated = [...contestData.instructions]
-    updated[index] = value
-    setContestData({ ...contestData, instructions: updated })
-  }
-
-  const removeInstruction = (index: number) => {
-    setContestData({
-      ...contestData,
-      instructions: contestData.instructions.filter((_, i) => i !== index),
-    })
   }
 
   const handleImageUpload = async (
@@ -102,17 +95,20 @@ export default function CreateContestPage() {
     setUploadingImage(uploadKey)
 
     try {
-      const imageUrl = await apiClient.uploadImage(file)
+      // Validate file
+      if (!file.type.startsWith("image/")) {
+        throw new Error("Please select an image file")
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        throw new Error("Image size should be less than 5MB")
+      }
+
+      const imageUrl = await storage.saveUploadedImage(file)
 
       if (type === "question") {
         updateMCQProblem(problemIndex, "questionImage", imageUrl)
       } else if (type === "option" && optionIndex !== undefined) {
-        const updated = [...mcqProblems]
-        if (!updated[problemIndex].optionImages) {
-          updated[problemIndex].optionImages = []
-        }
-        updated[problemIndex].optionImages![optionIndex] = imageUrl
-        setMcqProblems(updated)
+        updateMCQOption(problemIndex, optionIndex, "imageUrl", imageUrl)
       }
     } catch (error) {
       console.error("Image upload failed:", error)
@@ -137,17 +133,27 @@ export default function CreateContestPage() {
     }
 
     // Validate MCQ problems
-    for (const problem of mcqProblems) {
+    for (let i = 0; i < mcqProblems.length; i++) {
+      const problem = mcqProblems[i]
       if (!problem.question.trim()) {
-        setError("All MCQ problems must have a question")
+        setError(`Question ${i + 1} is required`)
         return
       }
-      if (problem.options.some((opt) => !opt.trim())) {
-        setError("All MCQ options must be filled")
+
+      const hasCorrectAnswer = problem.options.some((opt) => opt.isCorrect)
+      if (!hasCorrectAnswer) {
+        setError(`Question ${i + 1} must have a correct answer selected`)
         return
       }
+
+      const emptyOptions = problem.options.filter((opt) => !opt.text.trim())
+      if (emptyOptions.length > 0) {
+        setError(`All options for Question ${i + 1} must be filled`)
+        return
+      }
+
       if (problem.marks <= 0) {
-        setError("All questions must have positive marks")
+        setError(`Question ${i + 1} must have positive marks`)
         return
       }
     }
@@ -155,15 +161,17 @@ export default function CreateContestPage() {
     setLoading(true)
 
     try {
-      await apiClient.createContest({
+      const totalMarks = mcqProblems.reduce((sum, problem) => sum + problem.marks, 0)
+
+      storage.createContest({
         title: contestData.title,
         description: contestData.description,
         duration: contestData.duration,
         mcqProblems,
-        instructions: contestData.instructions.filter((inst) => inst.trim()),
-        allowReview: contestData.allowReview,
-        showResults: contestData.showResults,
-        passingMarks: contestData.passingMarks,
+        totalMarks,
+        instructions: contestData.instructions,
+        createdBy: user.name,
+        isActive: true,
       })
 
       router.push("/")
@@ -225,7 +233,7 @@ export default function CreateContestPage() {
                   />
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <Label htmlFor="duration" className="flex items-center space-x-2">
                       <Clock className="w-4 h-4" />
@@ -234,71 +242,25 @@ export default function CreateContestPage() {
                     <Input
                       id="duration"
                       type="number"
-                      min="30"
+                      min="10"
                       max="480"
                       value={contestData.duration}
                       onChange={(e) => setContestData({ ...contestData, duration: Number(e.target.value) })}
-                      placeholder="120"
+                      placeholder="60"
                     />
-                  </div>
-
-                  <div>
-                    <Label htmlFor="passingMarks">Passing Marks (optional)</Label>
-                    <Input
-                      id="passingMarks"
-                      type="number"
-                      min="0"
-                      value={contestData.passingMarks}
-                      onChange={(e) => setContestData({ ...contestData, passingMarks: Number(e.target.value) })}
-                      placeholder="0"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Options</Label>
-                    <div className="space-y-2">
-                      <label className="flex items-center space-x-2">
-                        <input
-                          type="checkbox"
-                          checked={contestData.allowReview}
-                          onChange={(e) => setContestData({ ...contestData, allowReview: e.target.checked })}
-                        />
-                        <span className="text-sm">Allow review</span>
-                      </label>
-                      <label className="flex items-center space-x-2">
-                        <input
-                          type="checkbox"
-                          checked={contestData.showResults}
-                          onChange={(e) => setContestData({ ...contestData, showResults: e.target.checked })}
-                        />
-                        <span className="text-sm">Show results</span>
-                      </label>
-                    </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Instructions */}
-              <div className="space-y-4">
-                <div className="flex justify-between items-center">
-                  <Label>Contest Instructions</Label>
-                  <Button type="button" onClick={addInstruction} variant="outline" size="sm">
-                    <Plus className="w-4 h-4 mr-2" />
-                    Add Instruction
-                  </Button>
+                <div>
+                  <Label htmlFor="instructions">Instructions</Label>
+                  <Textarea
+                    id="instructions"
+                    value={contestData.instructions}
+                    onChange={(e) => setContestData({ ...contestData, instructions: e.target.value })}
+                    placeholder="Contest instructions..."
+                    rows={4}
+                  />
                 </div>
-                {contestData.instructions.map((instruction, index) => (
-                  <div key={index} className="flex space-x-2">
-                    <Input
-                      value={instruction}
-                      onChange={(e) => updateInstruction(index, e.target.value)}
-                      placeholder={`Instruction ${index + 1}`}
-                    />
-                    <Button type="button" onClick={() => removeInstruction(index)} variant="ghost" size="sm">
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
-                ))}
               </div>
 
               {/* MCQ Problems */}
@@ -308,7 +270,7 @@ export default function CreateContestPage() {
                     <HelpCircle className="w-5 h-5" />
                     <span>MCQ Questions ({mcqProblems.length})</span>
                   </h3>
-                  <Button onClick={addMCQProblem} variant="outline" size="sm">
+                  <Button type="button" onClick={addMCQProblem} variant="outline" size="sm">
                     <Plus className="w-4 h-4 mr-2" />
                     Add Question
                   </Button>
@@ -318,7 +280,7 @@ export default function CreateContestPage() {
                   <Card key={problem.id}>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                       <CardTitle className="text-base">Question {index + 1}</CardTitle>
-                      <Button onClick={() => removeMCQProblem(index)} variant="ghost" size="sm">
+                      <Button type="button" onClick={() => removeMCQProblem(index)} variant="ghost" size="sm">
                         <Trash2 className="w-4 h-4" />
                       </Button>
                     </CardHeader>
@@ -350,7 +312,10 @@ export default function CreateContestPage() {
                             disabled={uploadingImage === `${index}-question-0`}
                           />
                           {uploadingImage === `${index}-question-0` && (
-                            <div className="text-sm text-blue-600">Uploading...</div>
+                            <div className="flex items-center space-x-2 text-sm text-blue-600">
+                              <Upload className="w-4 h-4 animate-spin" />
+                              <span>Uploading...</span>
+                            </div>
                           )}
                         </div>
                         {problem.questionImage && (
@@ -375,7 +340,7 @@ export default function CreateContestPage() {
                         )}
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                         <div>
                           <Label>Marks</Label>
                           <Input
@@ -391,7 +356,7 @@ export default function CreateContestPage() {
                             type="number"
                             min="0"
                             step="0.25"
-                            value={problem.negativeMarks || 0}
+                            value={problem.negativeMarks}
                             onChange={(e) => updateMCQProblem(index, "negativeMarks", Number(e.target.value))}
                           />
                         </div>
@@ -411,38 +376,40 @@ export default function CreateContestPage() {
                             </SelectContent>
                           </Select>
                         </div>
-                      </div>
-
-                      <div>
-                        <Label>Subject (optional)</Label>
-                        <Input
-                          value={problem.subject || ""}
-                          onChange={(e) => updateMCQProblem(index, "subject", e.target.value)}
-                          placeholder="e.g., Physics, Mathematics"
-                        />
+                        <div>
+                          <Label>Subject</Label>
+                          <Input
+                            value={problem.subject || ""}
+                            onChange={(e) => updateMCQProblem(index, "subject", e.target.value)}
+                            placeholder="e.g., Physics"
+                          />
+                        </div>
                       </div>
 
                       <div className="space-y-3">
                         <Label>Options</Label>
                         {problem.options.map((option, optionIndex) => (
-                          <div key={optionIndex} className="space-y-2">
+                          <div key={option.id} className="space-y-2 p-3 border rounded-lg">
                             <div className="flex items-center space-x-2">
                               <input
                                 type="radio"
                                 name={`correct-${index}`}
-                                checked={problem.correctAnswer === optionIndex}
-                                onChange={() => updateMCQProblem(index, "correctAnswer", optionIndex)}
+                                checked={option.isCorrect}
+                                onChange={() => setCorrectAnswer(index, optionIndex)}
                                 className="text-indigo-600"
                               />
-                              <Input
-                                value={option}
-                                onChange={(e) => updateMCQOption(index, optionIndex, e.target.value)}
-                                placeholder={`Option ${String.fromCharCode(65 + optionIndex)}`}
-                              />
+                              <Label className="text-sm font-medium">
+                                Option {String.fromCharCode(65 + optionIndex)} (Correct Answer)
+                              </Label>
                             </div>
+                            <Input
+                              value={option.text}
+                              onChange={(e) => updateMCQOption(index, optionIndex, "text", e.target.value)}
+                              placeholder={`Option ${String.fromCharCode(65 + optionIndex)}`}
+                            />
 
                             {/* Option Image Upload */}
-                            <div className="ml-6">
+                            <div>
                               <div className="flex items-center space-x-2">
                                 <Input
                                   type="file"
@@ -455,13 +422,16 @@ export default function CreateContestPage() {
                                   className="text-xs"
                                 />
                                 {uploadingImage === `${index}-option-${optionIndex}` && (
-                                  <div className="text-xs text-blue-600">Uploading...</div>
+                                  <div className="flex items-center space-x-1 text-xs text-blue-600">
+                                    <Upload className="w-3 h-3 animate-spin" />
+                                    <span>Uploading...</span>
+                                  </div>
                                 )}
                               </div>
-                              {problem.optionImages?.[optionIndex] && (
+                              {option.imageUrl && (
                                 <div className="mt-1">
                                   <Image
-                                    src={problem.optionImages[optionIndex] || "/placeholder.svg"}
+                                    src={option.imageUrl || "/placeholder.svg"}
                                     alt={`Option ${String.fromCharCode(65 + optionIndex)} image`}
                                     width={150}
                                     height={100}
@@ -471,13 +441,7 @@ export default function CreateContestPage() {
                                     type="button"
                                     variant="ghost"
                                     size="sm"
-                                    onClick={() => {
-                                      const updated = [...mcqProblems]
-                                      if (updated[index].optionImages) {
-                                        updated[index].optionImages![optionIndex] = ""
-                                      }
-                                      setMcqProblems(updated)
-                                    }}
+                                    onClick={() => updateMCQOption(index, optionIndex, "imageUrl", undefined)}
                                     className="mt-1 text-xs"
                                   >
                                     Remove

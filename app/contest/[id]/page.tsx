@@ -9,11 +9,21 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Progress } from "@/components/ui/progress"
-import { ArrowLeft, Trophy, CheckCircle, AlertTriangle, Clock, BookOpen, Target } from "lucide-react"
+import {
+  ArrowLeft,
+  Trophy,
+  CheckCircle,
+  AlertTriangle,
+  Clock,
+  BookOpen,
+  Target,
+  ChevronLeft,
+  ChevronRight,
+  Flag,
+} from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
-import type { Contest } from "@/lib/types"
-import { ContestTimer } from "@/components/contest-timer"
-import { apiClient } from "@/lib/api-client"
+import { storage } from "@/lib/storage"
+import type { Contest, ExamSession } from "@/lib/types"
 import Image from "next/image"
 
 interface ContestPageProps {
@@ -27,40 +37,92 @@ export default function ContestPage({ params }: ContestPageProps) {
   const router = useRouter()
   const [contest, setContest] = useState<Contest | null>(null)
   const [currentQuestion, setCurrentQuestion] = useState(0)
-  const [answers, setAnswers] = useState<Record<string, number>>({})
+  const [answers, setAnswers] = useState<Record<string, string>>({})
   const [submitted, setSubmitted] = useState(false)
   const [loading, setLoading] = useState(true)
   const [timeExpired, setTimeExpired] = useState(false)
-  const [startTime] = useState(Date.now())
   const [showInstructions, setShowInstructions] = useState(true)
+  const [examSession, setExamSession] = useState<ExamSession | null>(null)
+  const [timeRemaining, setTimeRemaining] = useState(0)
 
   useEffect(() => {
-    const fetchContest = async () => {
-      try {
-        const contestData = await apiClient.getContest(params.id)
-        if (!contestData) {
-          router.push("/")
-          return
-        }
-        setContest(contestData)
-
-        // Check if contest has already ended
-        if (contestData.endTime && new Date() > new Date(contestData.endTime)) {
-          setTimeExpired(true)
-        }
-      } catch (error) {
-        console.error("Failed to fetch contest:", error)
-        router.push("/")
-      } finally {
-        setLoading(false)
-      }
+    if (!user) {
+      router.push("/login")
+      return
     }
 
-    fetchContest()
-  }, [params.id, router])
+    const contestData = storage.getContestById(params.id)
+    if (!contestData) {
+      router.push("/")
+      return
+    }
+
+    setContest(contestData)
+
+    // Check if user already submitted
+    const existingSubmission = storage.getUserSubmissionForContest(user.id, params.id)
+    if (existingSubmission) {
+      setSubmitted(true)
+      setLoading(false)
+      return
+    }
+
+    // Load or create exam session
+    let session = storage.getExamSession(params.id, user.id)
+    if (!session) {
+      session = {
+        contestId: params.id,
+        userId: user.id,
+        startTime: Date.now(),
+        answers: {},
+        currentQuestion: 0,
+        timeRemaining: contestData.duration * 60, // Convert to seconds
+        isSubmitted: false,
+      }
+      storage.setExamSession(session)
+    }
+
+    setExamSession(session)
+    setAnswers(session.answers)
+    setCurrentQuestion(session.currentQuestion)
+    setTimeRemaining(session.timeRemaining)
+    setLoading(false)
+  }, [params.id, user, router])
+
+  // Timer effect
+  useEffect(() => {
+    if (!examSession || submitted || timeExpired || showInstructions) return
+
+    const timer = setInterval(() => {
+      setTimeRemaining((prev) => {
+        const newTime = prev - 1
+
+        // Update session
+        if (examSession) {
+          const updatedSession = {
+            ...examSession,
+            timeRemaining: newTime,
+            answers,
+            currentQuestion,
+          }
+          storage.setExamSession(updatedSession)
+          setExamSession(updatedSession)
+        }
+
+        if (newTime <= 0) {
+          setTimeExpired(true)
+          handleSubmit(true)
+          return 0
+        }
+
+        return newTime
+      })
+    }, 1000)
+
+    return () => clearInterval(timer)
+  }, [examSession, submitted, timeExpired, showInstructions, answers, currentQuestion])
 
   if (!user) {
-    router.push("/login")
     return null
   }
 
@@ -86,41 +148,62 @@ export default function ContestPage({ params }: ContestPageProps) {
     )
   }
 
-  const handleAnswer = (questionId: string, answerIndex: number) => {
+  const handleAnswer = (questionId: string, answerOptionId: string) => {
     if (timeExpired || submitted) return
-    setAnswers({ ...answers, [questionId]: answerIndex })
+
+    const newAnswers = { ...answers, [questionId]: answerOptionId }
+    setAnswers(newAnswers)
+
+    // Update session
+    if (examSession) {
+      const updatedSession = {
+        ...examSession,
+        answers: newAnswers,
+        currentQuestion,
+      }
+      storage.setExamSession(updatedSession)
+      setExamSession(updatedSession)
+    }
   }
 
-  const handleSubmit = async () => {
-    if (timeExpired || submitted) return
+  const handleSubmit = async (autoSubmit = false) => {
+    if (submitted) return
 
-    const timeTaken = Math.floor((Date.now() - startTime) / 1000)
+    const timeTaken = examSession ? examSession.timeRemaining - timeRemaining : 0
     setSubmitted(true)
 
     try {
-      await apiClient.saveSubmission({
+      const scoreData = storage.calculateScore(contest.id, answers)
+
+      storage.createSubmission({
         contestId: contest.id,
+        userId: user.id,
+        userName: user.name,
         answers,
         timeTaken,
+        submittedAt: new Date().toISOString(),
+        ...scoreData,
       })
+
+      // Clear exam session
+      storage.clearExamSession(contest.id, user.id)
     } catch (error) {
       console.error("Failed to save submission:", error)
     }
   }
 
-  const handleTimeExpired = () => {
-    setTimeExpired(true)
-    if (!submitted) {
-      handleSubmit()
-    }
-  }
-
   const getQuestionStatus = (questionId: string) => {
-    return answers[questionId] !== undefined ? "answered" : "unanswered"
+    return answers[questionId] ? "answered" : "unanswered"
   }
 
   const answeredCount = Object.keys(answers).length
   const progressPercentage = (answeredCount / contest.mcqProblems.length) * 100
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60)
+    const secs = seconds % 60
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`
+  }
 
   // Instructions screen
   if (showInstructions && !submitted && !timeExpired) {
@@ -171,23 +254,17 @@ export default function ContestPage({ params }: ContestPageProps) {
                 </div>
               </div>
 
-              {contest.instructions && contest.instructions.length > 0 && (
+              {contest.instructions && (
                 <div>
                   <h3 className="text-lg font-semibold mb-3">Instructions</h3>
                   <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                    <ul className="list-disc list-inside space-y-2 text-sm">
-                      {contest.instructions.map((instruction, index) => (
-                        <li key={index} className="text-yellow-800">
-                          {instruction}
-                        </li>
-                      ))}
-                    </ul>
+                    <pre className="text-sm text-yellow-800 whitespace-pre-wrap font-sans">{contest.instructions}</pre>
                   </div>
                 </div>
               )}
 
               <div>
-                <h3 className="text-lg font-semibold mb-3">General Instructions</h3>
+                <h3 className="text-lg font-semibold mb-3">General Guidelines</h3>
                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
                   <ul className="list-disc list-inside space-y-2 text-sm text-gray-700">
                     <li>Read each question carefully before selecting your answer</li>
@@ -195,17 +272,15 @@ export default function ContestPage({ params }: ContestPageProps) {
                     <li>Your progress is automatically saved</li>
                     <li>Submit your exam before time expires</li>
                     <li>Once submitted, you cannot change your answers</li>
-                    {contest.mcqProblems.some((q) => q.negativeMarks) && (
-                      <li className="text-red-600 font-medium">
-                        <strong>Note:</strong> Some questions have negative marking for incorrect answers
-                      </li>
-                    )}
+                    <li className="text-red-600 font-medium">
+                      <strong>Note:</strong> Questions may have negative marking for incorrect answers
+                    </li>
                   </ul>
                 </div>
               </div>
 
               <div className="flex justify-center">
-                <Button onClick={() => setShowInstructions(false)} size="lg" className="px-8" disabled={timeExpired}>
+                <Button onClick={() => setShowInstructions(false)} size="lg" className="px-8">
                   Start Exam
                 </Button>
               </div>
@@ -218,6 +293,8 @@ export default function ContestPage({ params }: ContestPageProps) {
 
   // Results screen
   if (submitted || timeExpired) {
+    const submission = storage.getUserSubmissionForContest(user.id, contest.id)
+
     return (
       <div className="min-h-screen bg-gray-50">
         <header className="bg-white shadow-sm border-b">
@@ -249,39 +326,43 @@ export default function ContestPage({ params }: ContestPageProps) {
               )}
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="bg-gray-50 rounded-lg p-6">
-                <h3 className="text-lg font-semibold mb-4">Your Performance</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-indigo-600">{answeredCount}</div>
-                    <div className="text-sm text-gray-600">Questions Attempted</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-green-600">
-                      {contest.mcqProblems.length - answeredCount}
+              {submission && (
+                <div className="bg-gray-50 rounded-lg p-6">
+                  <h3 className="text-lg font-semibold mb-4">Your Results</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-green-600">{submission.score}</div>
+                      <div className="text-sm text-gray-600">Score</div>
                     </div>
-                    <div className="text-sm text-gray-600">Questions Skipped</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-blue-600">
-                      {Math.floor((Date.now() - startTime) / 60000)} min
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-blue-600">{submission.correctAnswers}</div>
+                      <div className="text-sm text-gray-600">Correct</div>
                     </div>
-                    <div className="text-sm text-gray-600">Time Taken</div>
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-red-600">{submission.wrongAnswers}</div>
+                      <div className="text-sm text-gray-600">Wrong</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-gray-600">{submission.unattempted}</div>
+                      <div className="text-sm text-gray-600">Unattempted</div>
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
 
               <Alert>
                 <CheckCircle className="h-4 w-4" />
                 <AlertDescription>
-                  Your submission has been saved successfully.
-                  {contest.showResults ? " Results will be available shortly." : " Results will be announced later."}
+                  Your submission has been saved successfully. You can view detailed results in your profile.
                 </AlertDescription>
               </Alert>
 
-              <Button onClick={() => router.push("/")} className="w-full">
-                Back to Home
-              </Button>
+              <div className="flex space-x-4 justify-center">
+                <Button onClick={() => router.push("/")} variant="outline">
+                  Back to Home
+                </Button>
+                <Button onClick={() => router.push("/profile")}>View Profile</Button>
+              </div>
             </CardContent>
           </Card>
         </main>
@@ -303,7 +384,18 @@ export default function ContestPage({ params }: ContestPageProps) {
               </Badge>
             </div>
             <div className="flex items-center space-x-4">
-              {contest.endTime && <ContestTimer endTime={contest.endTime} onTimeExpired={handleTimeExpired} />}
+              <div
+                className={`flex items-center space-x-2 px-3 py-1 rounded-lg ${
+                  timeRemaining <= 300
+                    ? "bg-red-100 text-red-800"
+                    : timeRemaining <= 600
+                      ? "bg-yellow-100 text-yellow-800"
+                      : "bg-green-100 text-green-800"
+                }`}
+              >
+                <Clock className="w-4 h-4" />
+                <span className="font-mono font-semibold">{formatTime(timeRemaining)}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -332,10 +424,17 @@ export default function ContestPage({ params }: ContestPageProps) {
                       size="sm"
                       className={`w-10 h-10 p-0 ${
                         getQuestionStatus(contest.mcqProblems[index].id) === "answered"
-                          ? "bg-green-100 border-green-300 text-green-800"
+                          ? "bg-green-100 border-green-300 text-green-800 hover:bg-green-200"
                           : ""
                       }`}
-                      onClick={() => setCurrentQuestion(index)}
+                      onClick={() => {
+                        setCurrentQuestion(index)
+                        if (examSession) {
+                          const updatedSession = { ...examSession, currentQuestion: index }
+                          storage.setExamSession(updatedSession)
+                          setExamSession(updatedSession)
+                        }
+                      }}
                     >
                       {index + 1}
                     </Button>
@@ -356,6 +455,17 @@ export default function ContestPage({ params }: ContestPageProps) {
                     <span>Current</span>
                   </div>
                 </div>
+
+                <div className="mt-4 pt-4 border-t">
+                  <Button
+                    onClick={() => handleSubmit()}
+                    className="w-full bg-red-600 hover:bg-red-700 text-white"
+                    disabled={timeExpired || submitted}
+                  >
+                    <Flag className="w-4 h-4 mr-2" />
+                    Submit Exam
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           </div>
@@ -372,10 +482,13 @@ export default function ContestPage({ params }: ContestPageProps) {
                         {currentProblem.subject}
                       </Badge>
                     )}
+                    <Badge variant="outline" className="ml-2">
+                      {currentProblem.difficulty}
+                    </Badge>
                   </CardTitle>
                   <div className="flex items-center space-x-2">
                     <Badge variant="outline">+{currentProblem.marks} marks</Badge>
-                    {currentProblem.negativeMarks && (
+                    {currentProblem.negativeMarks > 0 && (
                       <Badge variant="destructive">-{currentProblem.negativeMarks} marks</Badge>
                     )}
                   </div>
@@ -383,7 +496,7 @@ export default function ContestPage({ params }: ContestPageProps) {
               </CardHeader>
               <CardContent className="space-y-6">
                 <div>
-                  <div className="text-gray-900 mb-4 leading-relaxed">{currentProblem.question}</div>
+                  <div className="text-gray-900 mb-4 leading-relaxed text-lg">{currentProblem.question}</div>
 
                   {currentProblem.questionImage && (
                     <div className="mb-4">
@@ -399,33 +512,35 @@ export default function ContestPage({ params }: ContestPageProps) {
                 </div>
 
                 <RadioGroup
-                  value={answers[currentProblem.id]?.toString() || ""}
-                  onValueChange={(value) => handleAnswer(currentProblem.id, Number.parseInt(value))}
+                  value={answers[currentProblem.id] || ""}
+                  onValueChange={(value) => handleAnswer(currentProblem.id, value)}
                   disabled={timeExpired || submitted}
                 >
                   {currentProblem.options.map((option, optionIndex) => (
                     <div
-                      key={optionIndex}
-                      className="flex items-start space-x-3 p-3 rounded-lg border border-gray-200 hover:bg-gray-50"
+                      key={option.id}
+                      className="flex items-start space-x-3 p-4 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"
                     >
                       <RadioGroupItem
-                        value={optionIndex.toString()}
-                        id={`${currentProblem.id}-${optionIndex}`}
+                        value={option.id}
+                        id={`${currentProblem.id}-${option.id}`}
                         disabled={timeExpired || submitted}
                         className="mt-1"
                       />
                       <Label
-                        htmlFor={`${currentProblem.id}-${optionIndex}`}
+                        htmlFor={`${currentProblem.id}-${option.id}`}
                         className={`cursor-pointer flex-1 ${timeExpired || submitted ? "opacity-50" : ""}`}
                       >
-                        <div className="flex items-start space-x-2">
-                          <span className="font-medium text-gray-700">{String.fromCharCode(65 + optionIndex)}.</span>
+                        <div className="flex items-start space-x-3">
+                          <span className="font-medium text-gray-700 text-lg">
+                            {String.fromCharCode(65 + optionIndex)}.
+                          </span>
                           <div className="flex-1">
-                            <div>{option}</div>
-                            {currentProblem.optionImages?.[optionIndex] && (
+                            <div className="text-base">{option.text}</div>
+                            {option.imageUrl && (
                               <div className="mt-2">
                                 <Image
-                                  src={currentProblem.optionImages[optionIndex] || "/placeholder.svg"}
+                                  src={option.imageUrl || "/placeholder.svg"}
                                   alt={`Option ${String.fromCharCode(65 + optionIndex)} image`}
                                   width={300}
                                   height={200}
@@ -444,25 +559,44 @@ export default function ContestPage({ params }: ContestPageProps) {
                   <div className="flex space-x-2">
                     <Button
                       variant="outline"
-                      onClick={() => setCurrentQuestion(Math.max(0, currentQuestion - 1))}
+                      onClick={() => {
+                        const newIndex = Math.max(0, currentQuestion - 1)
+                        setCurrentQuestion(newIndex)
+                        if (examSession) {
+                          const updatedSession = { ...examSession, currentQuestion: newIndex }
+                          storage.setExamSession(updatedSession)
+                          setExamSession(updatedSession)
+                        }
+                      }}
                       disabled={currentQuestion === 0}
                     >
+                      <ChevronLeft className="w-4 h-4 mr-2" />
                       Previous
                     </Button>
                     <Button
                       variant="outline"
-                      onClick={() => setCurrentQuestion(Math.min(contest.mcqProblems.length - 1, currentQuestion + 1))}
+                      onClick={() => {
+                        const newIndex = Math.min(contest.mcqProblems.length - 1, currentQuestion + 1)
+                        setCurrentQuestion(newIndex)
+                        if (examSession) {
+                          const updatedSession = { ...examSession, currentQuestion: newIndex }
+                          storage.setExamSession(updatedSession)
+                          setExamSession(updatedSession)
+                        }
+                      }}
                       disabled={currentQuestion === contest.mcqProblems.length - 1}
                     >
                       Next
+                      <ChevronRight className="w-4 h-4 ml-2" />
                     </Button>
                   </div>
 
                   <Button
-                    onClick={handleSubmit}
+                    onClick={() => handleSubmit()}
                     disabled={timeExpired || submitted}
                     className="bg-green-600 hover:bg-green-700"
                   >
+                    <Flag className="w-4 h-4 mr-2" />
                     Submit Exam
                   </Button>
                 </div>

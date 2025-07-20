@@ -66,3 +66,13 @@ export interface ContestResult {
     explanation?: string
   }>
 }
+
+export interface ExamSession {
+  contestId: string
+  userId: string
+  startTime: number
+  answers: Record<string, string>
+  currentQuestion: number
+  timeRemaining: number
+  isSubmitted: boolean
+}
